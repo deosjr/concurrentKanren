@@ -45,10 +45,14 @@ func main() {
     g := callfresh(func(x expression) goal { return disj_conc(fives(x), sixes(x), sevens(x)) })
     str := g(emptystate)
     fmt.Println(takeN(9, str))
-*/
+
     g := callfresh(func(x expression) goal { return disj_conc(nevero(), fives(x), sixes(x), sevens(x)) })
     str := g(emptystate)
     fmt.Println(takeN(9, str))
+*/
+    g := callfresh(func(x expression) goal { return callfresh(func(y expression) goal { return conj(equalo(x,number(5)), equalo(y,number(6))) }) })
+    str := g(emptystate)
+    fmt.Println(takeAll(str))
 }
 
 type expression interface {
@@ -270,7 +274,6 @@ func disj(g1, g2 goal) goal {
     }
 }
 
-// TODO: method of chan type?
 func mplus(ch chan state, str1, str2 stream) {
     v, ok := <-str1.ch
     if !ok {
@@ -281,7 +284,32 @@ func mplus(ch chan state, str1, str2 stream) {
         ch <- v
     }
     workpool <- func() { mplus(ch, str2, str1) }
-    return
+}
+
+func conj(g1, g2 goal) goal {
+    return func(st state) stream {
+        str := newStream()
+        str1 := g1(st)
+        workpool <- func() {
+            bind(str.ch, str1, g2)
+        }
+        return str
+    }
+}
+
+func bind(ch chan state, str stream, g goal) {
+    v, ok := <-str.ch
+    if !ok {
+        close(ch)
+        return
+    }
+    if v.delayed {
+        workpool <- func() { bind(ch, str, g) }
+        return
+    }
+    bstr := newStream()
+    workpool <- func() { bind(bstr.ch, str, g) }
+    workpool <- func() { mplus(ch, g(v), bstr) }
 }
 
 func takeAll(str stream) []state {
