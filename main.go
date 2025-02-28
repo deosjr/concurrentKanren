@@ -8,15 +8,16 @@ import (
 )
 
 func main() {
+    defer stopWorkers()
+    startWorkers(100)
+
+/*
     p := pair{variable(1), pair{number(2), pair{variable(3), emptylist}}}
     fmt.Println(p.display())
     s := substitution{}
     s[variable(1)] = number(3)
     out := s.walk(variable(1))
     fmt.Println(out.display())
-
-    defer stopWorkers()
-    startWorkers(10)
 
     g := callfresh(func(q expression) goal { return equalo(q, number(5)) })
     str := g(emptystate)
@@ -33,8 +34,20 @@ func main() {
     str = g(emptystate)
     fmt.Println(takeN(3, str))
 
-    g = callfresh(func(x expression) goal { return disj(fives(x), disj(sixes(x), sevens(x))) })
-    str = g(emptystate)
+    //g = callfresh(func(x expression) goal { return disj(fives(x), disj(sixes(x), sevens(x))) })
+    //str = g(emptystate)
+    //fmt.Println(takeN(9, str))
+
+    //g = callfresh(func(x expression) goal { return disj_plus(fives(x), sixes(x), sevens(x)) })
+    //str = g(emptystate)
+    //fmt.Println(takeN(9, str))
+
+    g := callfresh(func(x expression) goal { return disj_conc(fives(x), sixes(x), sevens(x)) })
+    str := g(emptystate)
+    fmt.Println(takeN(9, str))
+*/
+    g := callfresh(func(x expression) goal { return disj_conc(nevero(), fives(x), sixes(x), sevens(x)) })
+    str := g(emptystate)
     fmt.Println(takeN(9, str))
 }
 
@@ -225,6 +238,7 @@ func forward(ch chan state, str stream) {
 
 // equalo is the only goal that doesnt queue work
 func equalo(u, v expression) goal {
+    //time.Sleep(1*time.Second)
     return func(st state) stream {
         str := newStream()
         s, ok := st.sub.unify(u, v)
@@ -310,4 +324,51 @@ func sixes(x expression) goal {
 
 func sevens(x expression) goal {
     return disj(equalo(x, number(7)), delay(func() goal { return sevens(x) }))
+}
+
+func disj_plus(goals ...goal) goal {
+    if len(goals) == 1 {
+        return goals[0]
+    }
+    return disj(goals[0], disj_plus(goals[1:]...))
+}
+
+func disj_conc(goals ...goal) goal {
+    return func(st state) stream {
+        str := newStream()
+        buffer := []state{}
+        streams := []stream{}
+        for _, g := range goals {
+            streams = append(streams, g(st))
+        }
+        var f func()
+        f = func() {
+            if len(buffer) > 0 {
+                str.ch <- buffer[0]
+                buffer = buffer[1:]
+                workpool <- f
+                return
+            }
+            if len(streams) == 0 {
+                close(str.ch)
+                return
+            }
+            // refill the buffer
+            buffer = []state{}
+            for _, in := range streams {
+                x := <- in.ch
+                if x.delayed {
+                    continue
+                }
+                buffer = append(buffer, x)
+            }
+            workpool <- f
+        }
+        workpool <- f
+        return str
+    }
+}
+
+func nevero() goal {
+    return delay(func() goal { return nevero() })
 }
