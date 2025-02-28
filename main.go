@@ -154,6 +154,7 @@ func (s substitution) unify(u, v expression) (substitution, bool) {
 type state struct {
     sub substitution
     vc int
+    delayed bool    // signals an immature stream
 }
 
 var emptystate = state{
@@ -168,7 +169,7 @@ type stream struct {
 
 func newStream() stream {
     ch := make(chan state, 1)
-    return stream{ch, nil}
+    return stream{ch:ch, ctx:nil}
 }
 
 type goal func(state) stream
@@ -228,7 +229,7 @@ func equalo(u, v expression) goal {
         str := newStream()
         s, ok := st.sub.unify(u, v)
         if ok {
-            str.ch <- state{ s, st.vc }
+            str.ch <- state{ sub:s, vc:st.vc }
         }
         close(str.ch)
         return str
@@ -238,7 +239,7 @@ func equalo(u, v expression) goal {
 func callfresh(f func (x expression) goal) goal {
     return func(st state) stream {
         v := variable(st.vc)
-        newstate := state{ st.sub, st.vc+1 }
+        newstate := state{ sub:st.sub, vc:st.vc+1 }
         return f(v)(newstate)
     }
 }
@@ -262,7 +263,9 @@ func mplus(ch chan state, str1, str2 stream) {
         workpool <- func() { forward(ch, str2) }
         return
     }
-    ch <- v
+    if !v.delayed {
+        ch <- v
+    }
     workpool <- func() { mplus(ch, str2, str1) }
     return
 }
@@ -287,13 +290,11 @@ func takeN(n int, str stream) []state {
     return states
 }
 
-// NOTE: creates a new stream for each delay, probably less efficient than sending explicit delay signal
-// it does rely fully on workpool pattern to delay, which is somewhat interesting
-// TODO: we will need an explicit delay signal to deal with nevero anyways...
-// and that might remove a big source of forward, which is currently slowing everything down
+// NOTE: creates a new stream for each delay, probably not that efficient
 func delay(f func() goal) goal {
     return func(st state) stream {
         str := newStream()
+        str.ch <- state{delayed:true}
         workpool <- func() { forward(str.ch, f()(st)) }
         return str
     }
