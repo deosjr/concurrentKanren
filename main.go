@@ -355,13 +355,26 @@ func disj_conc(goals ...goal) goal {
             }
             // refill the buffer
             buffer = []state{}
-            for _, in := range streams {
-                x := <- in.ch
+            unproductive := map[int]struct{}{}
+            for i, in := range streams {
+                x, ok := <- in.ch
+                if !ok {
+                    unproductive[i] = struct{}{}
+                    continue
+                }
                 if x.delayed {
                     continue
                 }
                 buffer = append(buffer, x)
             }
+            active := []stream{}
+            for i, s := range streams {
+                if _, ok := unproductive[i]; ok {
+                    continue
+                }
+                active = append(active, s)
+            }
+            streams = active
             workpool <- f
         }
         workpool <- f
