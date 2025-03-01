@@ -3,8 +3,9 @@ package main
 import (
     "context"
     "fmt"
+    "runtime"
     "strings"
-    //"time"
+    "time"
 )
 
 func main() {
@@ -32,20 +33,23 @@ func main() {
     str := g(emptystate)
     fmt.Println(takeN(9, str))
 
+*/
     g := callfresh(func(x expression) goal { return disj_plus(fives(x), sixes(x), sevens(x)) })
     str := g(emptystate)
     fmt.Println(takeN(9, str))
+    fmt.Println(runtime.NumGoroutine())
+    time.Sleep(100*time.Millisecond)
+    fmt.Println(runtime.NumGoroutine())
+/*
 
     g := callfresh(func(x expression) goal { return disj_conc(fives(x), sixes(x), sevens(x)) })
     str := g(emptystate)
     fmt.Println(takeN(9, str))
-*/
 
     g := callfresh(func(x expression) goal { return disj_conc(nevero(), fives(x), sixes(x), sevens(x)) })
     str := g(emptystate)
     fmt.Println(takeN(9, str))
 
-/*
     g := callfresh(func(x expression) goal { return callfresh(func(y expression) goal { return conj(equalo(x,number(5)), equalo(y,number(6))) }) })
     str := g(emptystate)
     fmt.Println(takeAll(str))
@@ -182,6 +186,7 @@ type stream struct {
     ctx context.Context
 }
 
+// TODO: context cancellation
 func newStream() stream {
     in := make(chan bool, 1)
     out := make(chan state, 1)
@@ -210,7 +215,7 @@ func equalo(u, v expression) goal {
     return func(st state) stream {
         str := newStream()
         go func() {
-            <- str.in
+            <-str.in
             s, ok := st.sub.unify(u, v)
             if ok {
                 str.out <- state{ sub:s, vc:st.vc }
@@ -310,6 +315,8 @@ func takeN(n int, str stream) []state {
     return states
 }
 
+// TODO: delay leaks an ever-growing amount of goroutines
+// even if we takeN from an infinite stream!
 func delay(f func() goal) goal {
     return func(st state) stream {
         str := newStream()
@@ -372,8 +379,8 @@ func disj_conc(goals ...goal) goal {
             }
             streams = active
         }
-        var f func()
-        f = func() {
+        var mplusplus func()
+        mplusplus = func() {
             <-str.in
             for len(buffer) == 0 && len(streams) > 0 {
                 refillBuffer()
@@ -381,16 +388,16 @@ func disj_conc(goals ...goal) goal {
             if len(buffer) > 0 {
                 str.out <- buffer[0]
                 buffer = buffer[1:]
-                f()
+                mplusplus()
                 return
             }
             if len(streams) == 0 {
                 close(str.out)
                 return
             }
-            panic("should never happen")
+            panic("should never happen: productive streams remain but we didn't find anything to return?")
         }
-        go f()
+        go mplusplus()
         return str
     }
 }
