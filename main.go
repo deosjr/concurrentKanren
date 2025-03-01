@@ -34,10 +34,15 @@ func main() {
     fmt.Println(takeN(9, str))
 
 */
+    ctx, cancel := context.WithCancel(context.Background()) 
+    globalCtx = ctx
+
     g := callfresh(func(x expression) goal { return disj_plus(fives(x), sixes(x), sevens(x)) })
     str := g(emptystate)
     fmt.Println(takeN(9, str))
+
     fmt.Println(runtime.NumGoroutine())
+    cancel()
     time.Sleep(100*time.Millisecond)
     fmt.Println(runtime.NumGoroutine())
 /*
@@ -180,17 +185,27 @@ var emptystate = state{
     vc:  0,
 }
 
+var globalCtx context.Context
+
 type stream struct {
     in  chan bool
     out chan state
     ctx context.Context
 }
 
-// TODO: context cancellation
 func newStream() stream {
     in := make(chan bool, 1)
     out := make(chan state, 1)
-    return stream{in:in, out:out, ctx:nil}
+    return stream{in:in, out:out, ctx:globalCtx}
+}
+
+func (str stream) more() bool {
+    select {
+    case _, ok := <-str.in:
+        return ok
+    case <-str.ctx.Done():
+        return false
+    }
 }
 
 type goal func(state) stream
@@ -201,6 +216,7 @@ func link(parent, child stream) {
         for b := range parent.in {
             child.in <- b
         }
+        close(child.in)
     }()
     go func() {
         for st := range child.out {
@@ -215,7 +231,10 @@ func equalo(u, v expression) goal {
     return func(st state) stream {
         str := newStream()
         go func() {
-            <-str.in
+            if !str.more() {
+                close(str.out)
+                return
+            }
             s, ok := st.sub.unify(u, v)
             if ok {
                 str.out <- state{ sub:s, vc:st.vc }
@@ -245,7 +264,12 @@ func disj(g1, g2 goal) goal {
 }
 
 func mplus(str, str1, str2 stream) {
-    <-str.in
+    if !str.more() {
+        close(str.out)
+        close(str1.in)
+        close(str2.in)
+        return
+    }
     str1.in <- true
     v, ok := <-str1.out
     if !ok {
@@ -319,7 +343,10 @@ func delay(f func() goal) goal {
     return func(st state) stream {
         str := newStream()
         go func() {
-            <-str.in
+            if !str.more() {
+                close(str.out)
+                return
+            }
             str.out <- state{delayed:true}
             link(str, f()(st))
         }()
@@ -380,7 +407,13 @@ func disj_conc(goals ...goal) goal {
         }
         var mplusplus func()
         mplusplus = func() {
-            <-str.in
+            if !str.more() {
+                for _, s := range streams {
+                    close(s.in)
+                }
+                close(str.out)
+                return
+            }
             for len(buffer) == 0 && len(streams) > 0 {
                 refillBuffer()
             }
