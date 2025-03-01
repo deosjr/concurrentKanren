@@ -10,13 +10,6 @@ import (
 
 func main() {
 /*
-    p := pair{variable(1), pair{number(2), pair{variable(3), emptylist}}}
-    fmt.Println(p.display())
-    s := substitution{}
-    s[variable(1)] = number(3)
-    out := s.walk(variable(1))
-    fmt.Println(out.display())
-
     g := callfresh(func(q expression) goal { return equalo(q, number(5)) })
     str := g(emptystate)
     fmt.Println(takeAll(str))
@@ -34,23 +27,13 @@ func main() {
     fmt.Println(takeN(9, str))
 
 */
-    ctx, cancel := context.WithCancel(context.Background()) 
-    globalCtx = ctx
+    out := runN(9, callfresh(func(x expression) goal { return disj_plus(fives(x), sixes(x), sevens(x)) }))
+    fmt.Println(out)
 
-    g := callfresh(func(x expression) goal { return disj_plus(fives(x), sixes(x), sevens(x)) })
-    str := g(emptystate)
-    fmt.Println(takeN(9, str))
+    out = runN(9, callfresh(func(x expression) goal { return disj_conc(fives(x), sixes(x), sevens(x)) }))
+    fmt.Println(out)
 
-    fmt.Println(runtime.NumGoroutine())
-    cancel()
-    time.Sleep(100*time.Millisecond)
-    fmt.Println(runtime.NumGoroutine())
 /*
-
-    g := callfresh(func(x expression) goal { return disj_conc(fives(x), sixes(x), sevens(x)) })
-    str := g(emptystate)
-    fmt.Println(takeN(9, str))
-
     g := callfresh(func(x expression) goal { return disj_conc(nevero(), fives(x), sixes(x), sevens(x)) })
     str := g(emptystate)
     fmt.Println(takeN(9, str))
@@ -59,6 +42,30 @@ func main() {
     str := g(emptystate)
     fmt.Println(takeAll(str))
 */
+}
+
+func run(goals ...goal) []expression {
+    ctx, cancel := context.WithCancel(context.Background()) 
+    globalCtx = ctx
+
+    g := conj_plus(goals...)
+    out := mKreify(takeAll(g(emptystate)))
+    cancel()
+    return out
+}
+
+func runN(n int, goals ...goal) []expression {
+    ctx, cancel := context.WithCancel(context.Background()) 
+    globalCtx = ctx
+
+    g := conj_plus(goals...)
+    out := mKreify(takeN(n, g(emptystate)))
+
+    fmt.Println(runtime.NumGoroutine())
+    cancel()
+    time.Sleep(100*time.Millisecond)
+    fmt.Println(runtime.NumGoroutine())
+    return out
 }
 
 type expression interface {
@@ -129,6 +136,17 @@ func (s substitution) walk(u expression) expression {
         return u
     }
     return s.walk(e)
+}
+
+func (s substitution) walkstar(u expression) expression {
+    v := s.walk(u)
+    switch t := v.(type) {
+    case variable:
+        return t
+    case pair:
+        return pair{car: s.walkstar(t.car), cdr: s.walkstar(t.cdr)}
+    }
+    return v
 }
 
 // TODO: immutable maps
@@ -373,6 +391,13 @@ func disj_plus(goals ...goal) goal {
     return disj(goals[0], disj_plus(goals[1:]...))
 }
 
+func conj_plus(goals ...goal) goal {
+    if len(goals) == 1 {
+        return goals[0]
+    }
+    return conj(goals[0], conj_plus(goals[1:]...))
+}
+
 func disj_conc(goals ...goal) goal {
     return func(st state) stream {
         str := newStream()
@@ -436,4 +461,12 @@ func disj_conc(goals ...goal) goal {
 
 func nevero() goal {
     return delay(func() goal { return nevero() })
+}
+
+func mKreify(states []state) []expression {
+    exprs := []expression{}
+    for _, st := range states {
+        exprs = append(exprs, st.sub.walkstar(variable(0)))
+    }
+    return exprs
 }
