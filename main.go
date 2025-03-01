@@ -315,12 +315,11 @@ func takeN(n int, str stream) []state {
     return states
 }
 
-// TODO: delay leaks an ever-growing amount of goroutines
-// even if we takeN from an infinite stream!
 func delay(f func() goal) goal {
     return func(st state) stream {
         str := newStream()
         go func() {
+            <-str.in
             str.out <- state{delayed:true}
             link(str, f()(st))
         }()
