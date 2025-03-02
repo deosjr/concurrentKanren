@@ -503,6 +503,7 @@ func conj_sce(g1, g2 goal) goal {
                         go f()
                         return
                     }
+                    close(str2.in)
                     str1.out <- st
                     link(str, str1)
                     return
