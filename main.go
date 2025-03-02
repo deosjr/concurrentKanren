@@ -26,22 +26,29 @@ func main() {
     str := g(emptystate)
     fmt.Println(takeN(9, str))
 
-*/
     out := runN(9, callfresh(func(x expression) goal { return disj_plus(fives(x), sixes(x), sevens(x)) }))
     fmt.Println(out)
 
     out = runN(9, callfresh(func(x expression) goal { return disj_conc(fives(x), sixes(x), sevens(x)) }))
     fmt.Println(out)
 
-/*
     g := callfresh(func(x expression) goal { return disj_conc(nevero(), fives(x), sixes(x), sevens(x)) })
     str := g(emptystate)
     fmt.Println(takeN(9, str))
 
-    g := callfresh(func(x expression) goal { return callfresh(func(y expression) goal { return conj(equalo(x,number(5)), equalo(y,number(6))) }) })
-    str := g(emptystate)
-    fmt.Println(takeAll(str))
+    out := run(callfresh(func(x expression) goal { return callfresh(func(y expression) goal { return conj(equalo(x,number(5)), equalo(y,number(6))) }) }))
+    fmt.Println(out)
 */
+    failo := func() goal { return equalo(number(1), number(2)) }
+
+    out := run(failo())
+    fmt.Println(out)    // prints []
+
+    out = run(conj_sce(failo(), nevero()))
+    fmt.Println(out)    // prints []
+
+    out = run(conj_sce(nevero(), failo()))
+    fmt.Println(out)    // conj diverges, conj_sce prints []
 }
 
 func run(goals ...goal) []expression {
@@ -313,11 +320,14 @@ func conj(g1, g2 goal) goal {
     }
 }
 
+// TODO: bind should still check context?
+// in case str1 is a nondelayed nevero...
 func bind(str, str1 stream, g goal) {
     str1.in <- true
     v, ok := <-str1.out
     if !ok {
         close(str.out)
+        close(str1.in)
         return
     }
     if v.delayed {
@@ -455,6 +465,67 @@ func disj_conc(goals ...goal) goal {
             panic("should never happen: productive streams remain but we didn't find anything to return?")
         }
         go mplusplus()
+        return str
+    }
+}
+
+// short-circuit evaluation for conj
+// does more work, but can deal with infinite streams
+// bind can deal with the first goal being unproductive and doesn't evaluate second goal
+// the problem is when the first goal is infinitely looping and the second goal already failed
+// we test both goals, and short-circuit if the second is unproductive.
+// TODO: abstract beyond two goals
+func conj_sce(g1, g2 goal) goal {
+    return func(st state) stream {
+        str := newStream()
+        str1 := g1(st)
+        str2 := g2(st)
+        go func() {
+            str1.in <- true
+            str2.in <- true
+            var f func()
+            f = func() {
+                select {
+                case <-str.ctx.Done():
+                    close(str.out)
+                    close(str1.in)
+                    close(str2.in)
+                    return
+                case st, ok := <-str1.out:
+                    if !ok {
+                        close(str.out)
+                        close(str1.in)
+                        close(str2.in)
+                        return
+                    }
+                    if st.delayed {
+                        str1.in <- true
+                        go f()
+                        return
+                    }
+                    // bind will continue from here
+                    // put this first answer back onto str1 so we are back to when we started
+                    str1.out <- st
+                case st, ok := <-str2.out:
+                    if !ok {
+                        // short-circuit
+                        close(str.out)
+                        close(str1.in)
+                        close(str2.in)
+                        return
+                    }
+                    if st.delayed {
+                        str2.in <- true
+                        go f()
+                        return
+                    }
+                    // bind will create str2 again
+                }
+                close(str2.in)
+                bind(str, str1, g2)
+            }
+            f()
+        }()
         return str
     }
 }

@@ -48,3 +48,23 @@ func nevero() goal {
 // will print the exact same as the previous example
 out = runN(9, callfresh(func(x expression) goal { return disj_conc(nevero(), fives(x), sixes(x), sevens(x)) }))
 ```
+
+## Short-circuit evaluation of conjunction
+
+Given two goals, one that infinitely loops (nevero) and one that fails (failo), conjunction can get stuck depending on goal order.
+In the original implementation, bind can handle part of this problem if failo is in first position, never evaluating the second goal.
+However if nevero is first, the whole conjunction gets stuck in a loop.
+Concurrent evalution of both goals can detect early failure and short-circuit out correctly:
+
+```go
+failo := func() goal { return equalo(number(1), number(2)) }
+
+out := run(failo())
+fmt.Println(out)    // prints []
+
+out = run(conj_sce(failo(), nevero()))
+fmt.Println(out)    // prints []
+
+out = run(conj_sce(nevero(), failo()))
+fmt.Println(out)    // conj diverges, conj_sce prints []
+```
