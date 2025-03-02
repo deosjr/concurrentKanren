@@ -473,12 +473,12 @@ func disj_conc(goals ...goal) goal {
 // does more work, but can deal with infinite streams
 // bind can deal with the first goal being unproductive and doesn't evaluate second goal
 // the problem is when the first goal is infinitely looping and the second goal already failed
-// we test both goals, and short-circuit if the second is unproductive.
+// we test for this case, short-circuiting if we find it, or returning to normal conj if we don't
 // TODO: abstract beyond two goals
 func conj_sce(g1, g2 goal) goal {
     return func(st state) stream {
         str := newStream()
-        str1 := g1(st)
+        str1 := conj(g1, g2)(st)
         str2 := g2(st)
         go func() {
             str1.in <- true
@@ -503,9 +503,9 @@ func conj_sce(g1, g2 goal) goal {
                         go f()
                         return
                     }
-                    // bind will continue from here
-                    // put this first answer back onto str1 so we are back to when we started
                     str1.out <- st
+                    link(str, str1)
+                    return
                 case st, ok := <-str2.out:
                     if !ok {
                         // short-circuit
@@ -519,7 +519,6 @@ func conj_sce(g1, g2 goal) goal {
                         go f()
                         return
                     }
-                    // bind will create str2 again
                 }
                 close(str2.in)
                 bind(str, str1, g2)
