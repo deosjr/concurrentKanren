@@ -3,42 +3,12 @@ package main
 import (
     "context"
     "fmt"
-    "runtime"
+    "maps"
     "strings"
-    "time"
+    //"time"
 )
 
 func main() {
-/*
-    g := callfresh(func(q expression) goal { return equalo(q, number(5)) })
-    str := g(emptystate)
-    fmt.Println(takeAll(str))
-
-    g := callfresh(func(q expression) goal { return disj(equalo(q, number(5)), equalo(q, number(6))) })
-    str := g(emptystate)
-    fmt.Println(takeAll(str))
-
-    g := callfresh(func(x expression) goal { return fives(x) })
-    str := g(emptystate)
-    fmt.Println(takeN(3, str))
-
-    g := callfresh(func(x expression) goal { return disj(fives(x), disj(sixes(x), sevens(x))) })
-    str := g(emptystate)
-    fmt.Println(takeN(9, str))
-
-    out := runN(9, callfresh(func(x expression) goal { return disj_plus(fives(x), sixes(x), sevens(x)) }))
-    fmt.Println(out)
-
-    out = runN(9, callfresh(func(x expression) goal { return disj_conc(fives(x), sixes(x), sevens(x)) }))
-    fmt.Println(out)
-
-    g := callfresh(func(x expression) goal { return disj_conc(nevero(), fives(x), sixes(x), sevens(x)) })
-    str := g(emptystate)
-    fmt.Println(takeN(9, str))
-
-    out := run(callfresh(func(x expression) goal { return callfresh(func(y expression) goal { return conj(equalo(x,number(5)), equalo(y,number(6))) }) }))
-    fmt.Println(out)
-*/
     failo := func() goal { return equalo(number(1), number(2)) }
 
     out := run(failo())
@@ -68,10 +38,7 @@ func runN(n int, goals ...goal) []expression {
     g := conj_plus(goals...)
     out := mKreify(takeN(n, g(emptystate)))
 
-    fmt.Println(runtime.NumGoroutine())
     cancel()
-    time.Sleep(100*time.Millisecond)
-    fmt.Println(runtime.NumGoroutine())
     return out
 }
 
@@ -158,10 +125,7 @@ func (s substitution) walkstar(u expression) expression {
 
 // TODO: immutable maps
 func (s substitution) extend(v variable, e expression) substitution {
-    m := substitution{}
-    for k, v := range s {
-        m[k] = v
-    }
+    m := maps.Clone(s)
     m[v] = e
     return m
 }
@@ -303,7 +267,11 @@ func mplus(str, str1, str2 stream) {
         return
     }
     if v.delayed {
-        str.in <- true
+        select {
+        case str.in <- true:
+        default:
+            return
+        }
     } else {
         str.out <- v
     }
