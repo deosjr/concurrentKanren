@@ -37,7 +37,6 @@ func runN(n int, goals ...goal) []expression {
 
     g := conj_plus(goals...)
     out := mKreify(takeN(n, g(emptystate)))
-
     cancel()
     return out
 }
@@ -166,7 +165,7 @@ func (s substitution) unify(u, v expression) (substitution, bool) {
 type state struct {
     sub substitution
     vc int
-    delayed bool    // signals an immature stream
+    delayed func()  // signals an immature stream
 }
 
 var emptystate = state{
@@ -177,42 +176,36 @@ var emptystate = state{
 var globalCtx context.Context
 
 type stream struct {
-    in  chan bool
     out chan state
     ctx context.Context
 }
 
 func newStream() stream {
-    in := make(chan bool, 1)
     out := make(chan state, 1)
-    return stream{in:in, out:out, ctx:globalCtx}
-}
-
-func (str stream) more() bool {
-    select {
-    case _, ok := <-str.in:
-        return ok
-    case <-str.ctx.Done():
-        return false
-    }
+    return stream{out:out, ctx:globalCtx}
 }
 
 type goal func(state) stream
 
 // link two streams: send in from parent to child, out from child to parent
 func link(parent, child stream) {
-    go func() {
-        for b := range parent.in {
-            child.in <- b
+Loop:
+    for {
+        select {
+        case <-parent.ctx.Done():
+            break Loop
+        case st, ok := <-child.out:
+            if !ok {
+                break Loop
+            }
+            select {
+            case <-parent.ctx.Done():
+                break Loop
+            case parent.out <- st:
+            }
         }
-        close(child.in)
-    }()
-    go func() {
-        for st := range child.out {
-            parent.out <- st
-        }
-        close(parent.out)
-    }()
+    }
+    close(parent.out)
 }
 
 func equalo(u, v expression) goal {
@@ -220,13 +213,14 @@ func equalo(u, v expression) goal {
     return func(st state) stream {
         str := newStream()
         go func() {
-            if !str.more() {
-                close(str.out)
-                return
-            }
             s, ok := st.sub.unify(u, v)
             if ok {
-                str.out <- state{ sub:s, vc:st.vc }
+                select {
+                case <-str.ctx.Done():
+                    close(str.out)
+                    return
+                case str.out <- state{ sub:s, vc:st.vc }:
+                }
             }
             close(str.out)
         }()
@@ -253,29 +247,46 @@ func disj(g1, g2 goal) goal {
 }
 
 func mplus(str, str1, str2 stream) {
-    if !str.more() {
+    var v state
+    var ok bool
+    select {
+    case <-str.ctx.Done():
         close(str.out)
-        close(str1.in)
-        close(str2.in)
         return
+    case v, ok = <-str1.out:
     }
-    str1.in <- true
-    v, ok := <-str1.out
     if !ok {
-        str2.in <- true
-        link(str, str2)
+        go link(str, str2)
         return
     }
-    if v.delayed {
-        select {
-        case str.in <- true:
-        default:
-            return
-        }
+    if v.delayed != nil {
+        go v.delayed()
     } else {
-        str.out <- v
+        select {
+        case <-str.ctx.Done():
+            close(str.out)
+            return
+        case str.out <- v:
+        }
     }
     mplus(str, str2, str1)
+}
+
+func delay(f func() goal) goal {
+    return func(st state) stream {
+        str := newStream()
+        go func() {
+            select {
+            case <-str.ctx.Done():
+                close(str.out)
+                return
+            case str.out <- state{delayed:func() {
+                link(str, f()(st))
+            }}:
+            }
+        }()
+        return str
+    }
 }
 
 func conj(g1, g2 goal) goal {
@@ -288,17 +299,21 @@ func conj(g1, g2 goal) goal {
     }
 }
 
-// TODO: bind should still check context?
-// in case str1 is a nondelayed nevero...
 func bind(str, str1 stream, g goal) {
-    str1.in <- true
-    v, ok := <-str1.out
+    var v state
+    var ok bool
+    select {
+    case <-str.ctx.Done():
+        close(str.out)
+        return
+    case v, ok = <-str1.out:
+    }
     if !ok {
         close(str.out)
-        close(str1.in)
         return
     }
-    if v.delayed {
+    if v.delayed != nil {
+        go v.delayed()
         bind(str, str1, g)
         return
     }
@@ -307,59 +322,6 @@ func bind(str, str1 stream, g goal) {
         bind(bstr, str1, g)
     }()
     mplus(str, g(v), bstr)
-}
-
-func takeAll(str stream) []state {
-    states := []state{}
-    str.in <- true
-    for st := range str.out {
-        states = append(states, st)
-        str.in <- true
-    }
-    close(str.in)
-    return states
-}
-
-func takeN(n int, str stream) []state {
-    states := []state{}
-    str.in <- true
-    for i:=0; i<n; i++ {
-        st, ok := <-str.out
-        if !ok {
-            return states
-        }
-        states = append(states, st)
-        str.in <- true
-    }
-    close(str.in)
-    return states
-}
-
-func delay(f func() goal) goal {
-    return func(st state) stream {
-        str := newStream()
-        go func() {
-            if !str.more() {
-                close(str.out)
-                return
-            }
-            str.out <- state{delayed:true}
-            link(str, f()(st))
-        }()
-        return str
-    }
-}
-
-func fives(x expression) goal {
-    return disj(equalo(x, number(5)), delay(func() goal { return fives(x) }))
-}
-
-func sixes(x expression) goal {
-    return disj(equalo(x, number(6)), delay(func() goal { return sixes(x) }))
-}
-
-func sevens(x expression) goal {
-    return disj(equalo(x, number(7)), delay(func() goal { return sevens(x) }))
 }
 
 func disj_plus(goals ...goal) goal {
@@ -388,13 +350,19 @@ func disj_conc(goals ...goal) goal {
             buffer = []state{}
             unproductive := map[int]struct{}{}
             for i, s := range streams {
-                s.in <- true
-                x, ok := <- s.out
+                var x state
+                var ok bool
+                select {
+                case <-str.ctx.Done():
+                    return
+                case x, ok = <-s.out:
+                }
                 if !ok {
                     unproductive[i] = struct{}{}
                     continue
                 }
-                if x.delayed {
+                if x.delayed != nil {
+                    go x.delayed()
                     continue
                 }
                 buffer = append(buffer, x)
@@ -410,18 +378,16 @@ func disj_conc(goals ...goal) goal {
         }
         var mplusplus func()
         mplusplus = func() {
-            if !str.more() {
-                for _, s := range streams {
-                    close(s.in)
-                }
-                close(str.out)
-                return
-            }
             for len(buffer) == 0 && len(streams) > 0 {
                 refillBuffer()
             }
             if len(buffer) > 0 {
-                str.out <- buffer[0]
+                select {
+                case <-str.ctx.Done():
+                    close(str.out)
+                    return
+                case str.out <- buffer[0]:
+                }
                 buffer = buffer[1:]
                 mplusplus()
                 return
@@ -449,47 +415,44 @@ func conj_sce(g1, g2 goal) goal {
         str1 := conj(g1, g2)(st)
         str2 := g2(st)
         go func() {
-            str1.in <- true
-            str2.in <- true
             var f func()
             f = func() {
                 select {
                 case <-str.ctx.Done():
                     close(str.out)
-                    close(str1.in)
-                    close(str2.in)
                     return
                 case st, ok := <-str1.out:
                     if !ok {
                         close(str.out)
-                        close(str1.in)
-                        close(str2.in)
                         return
                     }
-                    if st.delayed {
-                        str1.in <- true
+                    if st.delayed != nil {
+                        go st.delayed()
                         go f()
                         return
                     }
-                    close(str2.in)
-                    str1.out <- st
-                    link(str, str1)
+                    // TODO: context cancel str2
+                    select {
+                    case <-str.ctx.Done():
+                        close(str.out)
+                        return
+                    case str1.out <- st:
+                    }
+                    go link(str, str1)
                     return
                 case st, ok := <-str2.out:
                     if !ok {
                         // short-circuit
                         close(str.out)
-                        close(str1.in)
-                        close(str2.in)
                         return
                     }
-                    if st.delayed {
-                        str2.in <- true
+                    if st.delayed != nil {
+                        go st.delayed()
                         go f()
                         return
                     }
                 }
-                close(str2.in)
+                //TODO: context cancel str2
                 bind(str, str1, g2)
             }
             f()
@@ -498,8 +461,32 @@ func conj_sce(g1, g2 goal) goal {
     }
 }
 
-func nevero() goal {
-    return delay(func() goal { return nevero() })
+func takeAll(str stream) []state {
+    states := []state{}
+    for st := range str.out {
+        if st.delayed != nil {
+            go st.delayed()
+            continue
+        }
+        states = append(states, st)
+    }
+    return states
+}
+
+func takeN(n int, str stream) []state {
+    states := []state{}
+    for i:=0; i<n; i++ {
+        st, ok := <-str.out
+        if !ok {
+            return states
+        }
+        if st.delayed != nil {
+            go st.delayed()
+            continue
+        }
+        states = append(states, st)
+    }
+    return states
 }
 
 func mKreify(states []state) []expression {
@@ -508,4 +495,20 @@ func mKreify(states []state) []expression {
         exprs = append(exprs, st.sub.walkstar(variable(0)))
     }
     return exprs
+}
+
+func nevero() goal {
+    return delay(func() goal { return nevero() })
+}
+
+func fives(x expression) goal {
+    return disj(equalo(x, number(5)), delay(func() goal { return fives(x) }))
+}
+
+func sixes(x expression) goal {
+    return disj(equalo(x, number(6)), delay(func() goal { return sixes(x) }))
+}
+
+func sevens(x expression) goal {
+    return disj(equalo(x, number(7)), delay(func() goal { return sevens(x) }))
 }

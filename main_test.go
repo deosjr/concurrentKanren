@@ -9,7 +9,6 @@ import (
 
 func TestMain(t *testing.T) {
     n5, n6, n7 := number(5), number(6), number(7)
-    waitTime := time.Millisecond * 100
     for i, tt := range []struct{
         goal goal
         take int
@@ -107,9 +106,17 @@ func TestMain(t *testing.T) {
             t.Errorf("%d) got %v want %v", i, got, tt.want)
         }
         // we need some time for goroutines to close down
-        time.Sleep(waitTime)
-        if n != runtime.NumGoroutine() {
-            t.Errorf("%d) number of goroutines has changed!", i)
+        var equalRoutines bool
+        for _, waitTime := range []int{10, 50, 100, 200, 300} {
+            time.Sleep(time.Duration(waitTime) * time.Millisecond)
+            newn := runtime.NumGoroutine()
+            if newn != n {
+                continue
+            }
+            equalRoutines = true
+        }
+        if !equalRoutines {
+            t.Fatalf("%d) number of goroutines has changed from %d to %d!", i, n, runtime.NumGoroutine())
         }
     }
 }

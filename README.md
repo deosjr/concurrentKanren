@@ -6,7 +6,7 @@ It is inspired by earlier experimentation in [FLENG](https://gitlab.com/b2495/fl
 ## Model
 
 In µKanren streams are either lists or functions of zero arguments (thunks): a function signals an immature stream.
-In concurrentKanren a stream consists of two channels: one signals more answers are requested from upstream, and one to return answers by.
+In concurrentKanren a stream consists of an unbuffered channel and a context.
 Streams are managed by goroutines, which need to be cleaned up by context cancellation when less answers are requested than are available.
 The implementation of `run` shows what this looks like in practise:
 
