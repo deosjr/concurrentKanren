@@ -427,7 +427,8 @@ func conj_sce(g1, g2 goal) goal {
     return func(ctx context.Context, st state) stream {
         str := newStream(ctx)
         str1 := conj(g1, g2)(ctx, st)
-        str2 := g2(ctx, st)
+        ctx2, cancelStr2 := context.WithCancel(ctx)
+        str2 := g2(ctx2, st)
         go func() {
             var f func()
             f = func() {
@@ -445,7 +446,7 @@ func conj_sce(g1, g2 goal) goal {
                         go f()
                         return
                     }
-                    // TODO: context cancel str2
+                    cancelStr2()
                     select {
                     case <-str.ctx.Done():
                         close(str.out)
@@ -466,7 +467,7 @@ func conj_sce(g1, g2 goal) goal {
                         return
                     }
                 }
-                //TODO: context cancel str2
+                cancelStr2()
                 bind(str, str1, g2)
             }
             f()
