@@ -5,38 +5,50 @@ import (
     "fmt"
     "maps"
     "strings"
-    //"time"
+    "time"
 )
 
 func main() {
-    failo := func() goal { return equalo(number(1), number(2)) }
+    // modify equalo to sleep for a second, emulating a heavy goal
+    slowEqualo := func(u, v expression) goal { 
+        return func(ctx context.Context, st state) stream {
+            time.Sleep(1*time.Second)
+            return equalo(u, v)(ctx, st)
+        }
+    }
 
-    out := run(failo())
-    fmt.Println(out)    // prints []
+    // modify goal to give up after 100ms
+    timeout100ms := func(g goal) goal {
+        return func(ctx context.Context, st state) stream {
+            // TODO: is cancel needed here?
+            ctx, _ = context.WithTimeout(ctx, 100*time.Millisecond)
+            return g(ctx, st)
+        }
+    }
 
-    out = run(conj_sce(failo(), nevero()))
-    fmt.Println(out)    // prints []
-
-    out = run(conj_sce(nevero(), failo()))
-    fmt.Println(out)    // conj diverges, conj_sce prints []
+    // second goal is cancelled after 100ms and starts cleanup early
+    // it might still return x=6, as select is nondeterministic
+    out := run(callfresh(func(x expression) goal {
+        return disj(
+            slowEqualo(x, number(5)),
+            timeout100ms(slowEqualo(x, number(6))),
+        )
+    }))
+    fmt.Println(out)    // prints [5] or [5 6]
 }
 
 func run(goals ...goal) []expression {
     ctx, cancel := context.WithCancel(context.Background()) 
-    globalCtx = ctx
-
     g := conj_plus(goals...)
-    out := mKreify(takeAll(g(emptystate)))
+    out := mKreify(takeAll(g(ctx, emptystate)))
     cancel()
     return out
 }
 
 func runN(n int, goals ...goal) []expression {
     ctx, cancel := context.WithCancel(context.Background()) 
-    globalCtx = ctx
-
     g := conj_plus(goals...)
-    out := mKreify(takeN(n, g(emptystate)))
+    out := mKreify(takeN(n, g(ctx, emptystate)))
     cancel()
     return out
 }
@@ -173,19 +185,19 @@ var emptystate = state{
     vc:  0,
 }
 
-var globalCtx context.Context
-
 type stream struct {
     out chan state
     ctx context.Context
 }
 
-func newStream() stream {
-    out := make(chan state, 1)
-    return stream{out:out, ctx:globalCtx}
+func newStream(ctx context.Context) stream {
+    return stream{
+        out: make(chan state),
+        ctx: ctx,
+    }
 }
 
-type goal func(state) stream
+type goal func(context.Context, state) stream
 
 // link two streams: send in from parent to child, out from child to parent
 func link(parent, child stream) {
@@ -209,9 +221,8 @@ Loop:
 }
 
 func equalo(u, v expression) goal {
-    //time.Sleep(1*time.Second)
-    return func(st state) stream {
-        str := newStream()
+    return func(ctx context.Context, st state) stream {
+        str := newStream(ctx)
         go func() {
             s, ok := st.sub.unify(u, v)
             if ok {
@@ -229,18 +240,18 @@ func equalo(u, v expression) goal {
 }
 
 func callfresh(f func (x expression) goal) goal {
-    return func(st state) stream {
+    return func(ctx context.Context, st state) stream {
         v := variable(st.vc)
         newstate := state{ sub:st.sub, vc:st.vc+1 }
-        return f(v)(newstate)
+        return f(v)(ctx, newstate)
     }
 }
 
 func disj(g1, g2 goal) goal {
-    return func(st state) stream {
-        str := newStream()
+    return func(ctx context.Context, st state) stream {
+        str := newStream(ctx)
         go func() {
-            mplus(str, g1(st), g2(st))
+            mplus(str, g1(ctx, st), g2(ctx, st))
         }()
         return str
     }
@@ -273,15 +284,15 @@ func mplus(str, str1, str2 stream) {
 }
 
 func delay(f func() goal) goal {
-    return func(st state) stream {
-        str := newStream()
+    return func(ctx context.Context, st state) stream {
+        str := newStream(ctx)
         go func() {
             select {
             case <-str.ctx.Done():
                 close(str.out)
                 return
             case str.out <- state{delayed:func() {
-                link(str, f()(st))
+                link(str, f()(ctx, st))
             }}:
             }
         }()
@@ -290,10 +301,10 @@ func delay(f func() goal) goal {
 }
 
 func conj(g1, g2 goal) goal {
-    return func(st state) stream {
-        str := newStream()
+    return func(ctx context.Context, st state) stream {
+        str := newStream(ctx)
         go func() {
-            bind(str, g1(st), g2)
+            bind(str, g1(ctx, st), g2)
         }()
         return str
     }
@@ -317,11 +328,11 @@ func bind(str, str1 stream, g goal) {
         bind(str, str1, g)
         return
     }
-    bstr := newStream()
+    bstr := newStream(str.ctx)
     go func() {
         bind(bstr, str1, g)
     }()
-    mplus(str, g(v), bstr)
+    mplus(str, g(str.ctx, v), bstr)
 }
 
 func disj_plus(goals ...goal) goal {
@@ -339,12 +350,12 @@ func conj_plus(goals ...goal) goal {
 }
 
 func disj_conc(goals ...goal) goal {
-    return func(st state) stream {
-        str := newStream()
+    return func(ctx context.Context, st state) stream {
+        str := newStream(ctx)
         buffer := []state{}
         streams := []stream{}
         for _, g := range goals {
-            streams = append(streams, g(st))
+            streams = append(streams, g(ctx, st))
         }
         refillBuffer := func() {
             buffer = []state{}
@@ -410,10 +421,10 @@ func disj_conc(goals ...goal) goal {
 // we test for this case, short-circuiting if we find it, or returning to normal conj if we don't
 // TODO: abstract beyond two goals
 func conj_sce(g1, g2 goal) goal {
-    return func(st state) stream {
-        str := newStream()
-        str1 := conj(g1, g2)(st)
-        str2 := g2(st)
+    return func(ctx context.Context, st state) stream {
+        str := newStream(ctx)
+        str1 := conj(g1, g2)(ctx, st)
+        str2 := g2(ctx, st)
         go func() {
             var f func()
             f = func() {
