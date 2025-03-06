@@ -283,6 +283,9 @@ func mplus(str, str1, str2 stream) {
     mplus(str, str2, str1)
 }
 
+// TODO: delay currently relies on receiver to continue the delayed function
+// especially if distributed over multiple machines, this moves the calculation
+// upwards in a way we do not want. Something to investigate further
 func delay(f func() goal) goal {
     return func(ctx context.Context, st state) stream {
         str := newStream(ctx)

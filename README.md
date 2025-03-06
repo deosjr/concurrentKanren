@@ -13,10 +13,8 @@ The implementation of `run` shows what this looks like in practise:
 ```go
 func run(goals ...goal) []expression {
     ctx, cancel := context.WithCancel(context.Background()) 
-    globalCtx = ctx
-
     g := conj_plus(goals...)
-    out := mKreify(takeAll(g(emptystate)))
+    out := mKreify(takeAll(g(ctx, emptystate)))
     cancel()
     return out
 }
