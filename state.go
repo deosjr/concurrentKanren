@@ -41,10 +41,13 @@ func (s substitution) walkstar(u expression) expression {
 }
 
 // TODO: immutable maps
-func (s substitution) extend(v variable, e expression) substitution {
+func (s substitution) extend(v variable, e expression) (substitution, bool) {
+    if s.occursCheck(v, e) {
+        return nil, false
+    }
 	m := maps.Clone(s)
 	m[v] = e
-	return m
+	return m, true
 }
 
 func (s substitution) unify(u, v expression) (substitution, bool) {
@@ -54,15 +57,12 @@ func (s substitution) unify(u, v expression) (substitution, bool) {
 		return s, true
 	}
 	uvar, uok := u0.(variable)
-	vvar, vok := v0.(variable)
-	if uok && vok && uvar == vvar {
-		return s, true
-	}
 	if uok {
-		return s.extend(uvar, v0), true
+		return s.extend(uvar, v0)
 	}
+	vvar, vok := v0.(variable)
 	if vok {
-		return s.extend(vvar, u0), true
+		return s.extend(vvar, u0)
 	}
 	upair, uok := u0.(pair)
 	vpair, vok := v0.(pair)
@@ -78,4 +78,16 @@ func (s substitution) unify(u, v expression) (substitution, bool) {
 		return s1, true
 	}
 	return nil, false
+}
+
+func (s substitution) occursCheck(v variable, e expression) bool {
+    e0 := s.walk(e)
+    if evar, ok := e0.(variable); ok {
+        return v == evar
+    }
+    epair, ok := e0.(pair)
+    if !ok {
+        return false
+    }
+    return s.occursCheck(v, epair.car) || s.occursCheck(v, epair.cdr)
 }

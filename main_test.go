@@ -94,6 +94,12 @@ func TestMain(t *testing.T) {
 			goal: conj_sce(nevero(), equalo(n5, n6)),
 			want: []expression{},
 		},
+        {
+            goal: callfresh(func(x expression) goal {
+                return equalo(x, pair{number(1), x})
+            }),
+            want: []expression{},
+        },
 	} {
 		n := runtime.NumGoroutine()
 		var got []expression
