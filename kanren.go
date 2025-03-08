@@ -141,3 +141,33 @@ func mKreify(states []state) []expression {
 	}
 	return exprs
 }
+
+// missing macros here. go:generate could be used perhaps
+// for now we duplicate the implementation of callfresh
+
+func fresh1(f func(expression) goal) goal {
+	return func(ctx context.Context, st state) stream {
+		x := variable(st.vc)
+		newstate := state{sub: st.sub, vc: st.vc + 1}
+		return f(x)(ctx, newstate)
+	}
+}
+
+func fresh2(f func(expression, expression) goal) goal {
+	return func(ctx context.Context, st state) stream {
+		x := variable(st.vc)
+		y := variable(st.vc + 1)
+		newstate := state{sub: st.sub, vc: st.vc + 2}
+		return f(x, y)(ctx, newstate)
+	}
+}
+
+func fresh3(f func(expression, expression, expression) goal) goal {
+	return func(ctx context.Context, st state) stream {
+		x := variable(st.vc)
+		y := variable(st.vc + 1)
+		z := variable(st.vc + 2)
+		newstate := state{sub: st.sub, vc: st.vc + 3}
+		return f(x, y, z)(ctx, newstate)
+	}
+}

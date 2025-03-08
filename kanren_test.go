@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestMain(t *testing.T) {
+func TestKanren(t *testing.T) {
 	n5, n6, n7 := number(5), number(6), number(7)
 	for i, tt := range []struct {
 		goal goal
@@ -62,23 +62,17 @@ func TestMain(t *testing.T) {
 			want: []expression{n5, n6, n7, n5, n6, n7, n5, n6, n7},
 		},
 		{
-			goal: callfresh(func(x expression) goal {
-				return callfresh(func(y expression) goal {
-					return conj(equalo(x, n5), equalo(y, n6))
-				})
+			goal: fresh2(func(x, y expression) goal {
+				return conj(equalo(x, n5), equalo(y, n6))
 			}),
 			want: []expression{n5},
 		},
 		{
-			goal: callfresh(func(q expression) goal {
-				return callfresh(func(x expression) goal {
-					return callfresh(func(y expression) goal {
-						return conj(
-							equalo(q, pair{x, y}),
-							conj(equalo(x, n5), equalo(y, n6)),
-						)
-					})
-				})
+			goal: fresh3(func(q, x, y expression) goal {
+				return conj(
+					equalo(q, pair{x, y}),
+					conj(equalo(x, n5), equalo(y, n6)),
+				)
 			}),
 			want: []expression{pair{n5, n6}},
 		},
@@ -94,12 +88,12 @@ func TestMain(t *testing.T) {
 			goal: conj_sce(nevero(), equalo(n5, n6)),
 			want: []expression{},
 		},
-        {
-            goal: callfresh(func(x expression) goal {
-                return equalo(x, pair{number(1), x})
-            }),
-            want: []expression{},
-        },
+		{
+			goal: callfresh(func(x expression) goal {
+				return equalo(x, pair{number(1), x})
+			}),
+			want: []expression{},
+		},
 	} {
 		n := runtime.NumGoroutine()
 		var got []expression

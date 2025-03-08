@@ -42,9 +42,9 @@ func (s substitution) walkstar(u expression) expression {
 
 // TODO: immutable maps
 func (s substitution) extend(v variable, e expression) (substitution, bool) {
-    if s.occursCheck(v, e) {
-        return nil, false
-    }
+	if s.occursCheck(v, e) {
+		return nil, false
+	}
 	m := maps.Clone(s)
 	m[v] = e
 	return m, true
@@ -81,13 +81,13 @@ func (s substitution) unify(u, v expression) (substitution, bool) {
 }
 
 func (s substitution) occursCheck(v variable, e expression) bool {
-    e0 := s.walk(e)
-    if evar, ok := e0.(variable); ok {
-        return v == evar
-    }
-    epair, ok := e0.(pair)
-    if !ok {
-        return false
-    }
-    return s.occursCheck(v, epair.car) || s.occursCheck(v, epair.cdr)
+	e0 := s.walk(e)
+	if evar, ok := e0.(variable); ok {
+		return v == evar
+	}
+	epair, ok := e0.(pair)
+	if !ok {
+		return false
+	}
+	return s.occursCheck(v, epair.car) || s.occursCheck(v, epair.cdr)
 }
