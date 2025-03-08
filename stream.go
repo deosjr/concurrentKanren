@@ -71,7 +71,8 @@ func takeAll(str stream) []state {
 
 func takeN(n int, str stream) []state {
 	states := []state{}
-	for i := 0; i < n; i++ {
+	i := 0
+	for i < n {
 		st, ok := <-str.out
 		if !ok {
 			return states
@@ -81,6 +82,7 @@ func takeN(n int, str stream) []state {
 			continue
 		}
 		states = append(states, st)
+		i++
 	}
 	return states
 }

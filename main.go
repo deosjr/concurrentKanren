@@ -1,11 +1,5 @@
 package main
 
-import (
-	"context"
-	"fmt"
-	"time"
-)
-
 func nevero() goal {
 	return delay(func() goal { return nevero() })
 }
@@ -23,30 +17,13 @@ func sevens(x expression) goal {
 }
 
 func main() {
-	// modify equalo to sleep for a second, emulating a heavy goal
-	slowEqualo := func(u, v expression) goal {
-		return func(ctx context.Context, st state) stream {
-			time.Sleep(1 * time.Second)
-			return equalo(u, v)(ctx, st)
-		}
-	}
-
-	// modify goal to give up after 100ms
-	timeout100ms := func(g goal) goal {
-		return func(ctx context.Context, st state) stream {
-			// TODO: is cancel needed here?
-			ctx, _ = context.WithTimeout(ctx, 100*time.Millisecond)
-			return g(ctx, st)
-		}
-	}
-
-	// second goal is cancelled after 100ms and starts cleanup early
-	// it might still return x=6, as select is nondeterministic
-	out := run(callfresh(func(x expression) goal {
-		return disj(
-			slowEqualo(x, number(5)),
-			timeout100ms(slowEqualo(x, number(6))),
+	// actual heavy goal to benchmark concurrency with
+	// arithmetic using disj_plus: ~14s
+	// arithmetic using disj_conc: ~11s
+	run(fresh3(func(q, x, y expression) goal {
+		return conj(
+			equalo(q, pair{x, pair{y, emptylist}}),
+			plusO(x, y, buildNum(10000)),
 		)
 	}))
-	fmt.Println(out) // prints [5] or [5 6]
 }
