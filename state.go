@@ -1,28 +1,46 @@
 package main
 
 import (
-	"maps"
+	"slices"
 )
 
 type state struct {
 	sub     substitution
 	vc      int
-	delayed func() // signals an immature stream
+	delayed func() // signals an immature stream if not nil
 }
 
-var emptystate = state{
-	sub: substitution{},
-	vc:  0,
+var emptystate = state{sub: nil, vc: 0}
+
+type substitution []expression
+
+func (s substitution) get(v variable) (expression, bool) {
+	key := int(v)
+	if key >= len(s) {
+		return v, false
+	}
+	e := s[key]
+	return e, e != nil
 }
 
-type substitution map[variable]expression
+func (s substitution) put(v variable, e expression) substitution {
+	var news substitution
+	key := int(v)
+	if len(s) <= key {
+		news = slices.Concat(s, make(substitution, key-len(s)+1))
+	} else {
+		news = slices.Clone(s)
+	}
+	news[key] = e
+	return news
+}
 
 func (s substitution) walk(u expression) expression {
 	uvar, ok := u.(variable)
 	if !ok {
 		return u
 	}
-	e, ok := s[uvar]
+	e, ok := s.get(uvar)
 	if !ok {
 		return u
 	}
@@ -40,14 +58,12 @@ func (s substitution) walkstar(u expression) expression {
 	return v
 }
 
-// TODO: immutable maps
+// TODO: immutable data structure with reuse, such as an AVL tree or HAMT
 func (s substitution) extend(v variable, e expression) (substitution, bool) {
 	if s.occursCheck(v, e) {
 		return nil, false
 	}
-	m := maps.Clone(s)
-	m[v] = e
-	return m, true
+	return s.put(v, e), true
 }
 
 func (s substitution) unify(u, v expression) (substitution, bool) {
