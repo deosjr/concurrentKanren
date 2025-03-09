@@ -14,20 +14,26 @@ var emptystate = state{sub: nil, vc: 0}
 
 type substitution []expression
 
+var notfound = variable(-1) // variables start at 0
+
 func (s substitution) get(v variable) (expression, bool) {
 	key := int(v)
 	if key >= len(s) {
 		return v, false
 	}
 	e := s[key]
-	return e, e != nil
+	return e, e != nil && e != notfound
 }
 
 func (s substitution) put(v variable, e expression) substitution {
 	var news substitution
 	key := int(v)
 	if len(s) <= key {
-		news = slices.Concat(s, make(substitution, key-len(s)+1))
+        ext := make(substitution, key-len(s)+1)
+        for i := range ext {
+            ext[i] = notfound
+        }
+		news = slices.Concat(s, ext)
 	} else {
 		news = slices.Clone(s)
 	}
