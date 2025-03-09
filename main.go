@@ -24,7 +24,7 @@ func main() {
 	// actual heavy goal to benchmark concurrency with
 	out := run(fresh3(func(q, x, y expression) goal {
 		return conj(
-			equalo(q, pair{x, pair{y, emptylist}}),
+			equalo(q, list(x, y)),
 			plusO(x, y, buildNum(10000)),
 		)
 	}))

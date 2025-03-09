@@ -27,6 +27,25 @@ func buildNum(n int) expression {
 	}
 }
 
+func parseNum(e expression) int {
+    n := 0
+    i := 1
+    for e != emptylist {
+        p, ok := e.(pair)
+        if !ok {
+            panic("not a valid oleg numeral: expected list")
+        }
+        x, ok := p.car.(number)
+        if !ok {
+            panic("not a valid oleg numeral: expected number")
+        }
+        n += int(x)*i
+        i += i
+        e = p.cdr
+    }
+    return n
+}
+
 func zeroO(n expression) goal {
 	return equalo(emptylist, n)
 }
