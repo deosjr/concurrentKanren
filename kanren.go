@@ -36,6 +36,7 @@ func disj(g1, g2 goal) goal {
 		str := newStream(ctx)
 		go func() {
 			mplus(str, g1(ctx, st), g2(ctx, st))
+
 		}()
 		return str
 	}
@@ -44,7 +45,7 @@ func disj(g1, g2 goal) goal {
 func mplus(str, str1, str2 stream) {
 	v, ok := str1.receive()
 	if !ok {
-		go link(str, str2)
+		link(str, str2)
 		return
 	}
 	if v.delayed == nil {

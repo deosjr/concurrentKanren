@@ -30,7 +30,7 @@ func conj_sce(g1, g2 goal) goal {
 					}
 					if st.delayed != nil {
 						go st.delayed()
-						go f()
+						f()
 						return
 					}
 					cancelStr2()
@@ -40,7 +40,7 @@ func conj_sce(g1, g2 goal) goal {
 						return
 					case str.out <- st:
 					}
-					go link(str, str1)
+					link(str, str1)
 					return
 				case st, ok := <-str2.out:
 					if !ok {
@@ -50,7 +50,7 @@ func conj_sce(g1, g2 goal) goal {
 					}
 					if st.delayed != nil {
 						go st.delayed()
-						go f()
+						f()
 						return
 					}
 					cancelStr2()
