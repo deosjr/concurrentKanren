@@ -17,19 +17,12 @@ func disj_conc(goals ...goal) goal {
 			buffer = []state{}
 			unproductive := map[int]struct{}{}
 			for i, s := range streams {
-				var x state
-				var ok bool
-				select {
-				case <-str.ctx.Done():
-					return
-				case x, ok = <-s.out:
-				}
+				x, ok := s.receive()
 				if !ok {
 					unproductive[i] = struct{}{}
 					continue
 				}
 				if x.delayed != nil {
-					go x.delayed()
 					continue
 				}
 				buffer = append(buffer, x)
@@ -49,11 +42,9 @@ func disj_conc(goals ...goal) goal {
 				refillBuffer()
 			}
 			if len(buffer) > 0 {
-				select {
-				case <-str.ctx.Done():
+				if !str.send(buffer[0]) {
 					close(str.out)
 					return
-				case str.out <- buffer[0]:
 				}
 				buffer = buffer[1:]
 				mplusplus()

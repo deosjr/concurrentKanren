@@ -12,11 +12,9 @@ func equalo(u, v expression) goal {
 		go func() {
 			s, ok := st.sub.unify(u, v)
 			if ok {
-				select {
-				case <-str.ctx.Done():
+				if !str.send(state{sub: s, vc: st.vc}) {
 					close(str.out)
 					return
-				case str.out <- state{sub: s, vc: st.vc}:
 				}
 			}
 			close(str.out)
@@ -44,26 +42,15 @@ func disj(g1, g2 goal) goal {
 }
 
 func mplus(str, str1, str2 stream) {
-	var v state
-	var ok bool
-	select {
-	case <-str.ctx.Done():
-		close(str.out)
-		return
-	case v, ok = <-str1.out:
-	}
+	v, ok := str1.receive()
 	if !ok {
 		go link(str, str2)
 		return
 	}
-	if v.delayed != nil {
-		go v.delayed()
-	} else {
-		select {
-		case <-str.ctx.Done():
+	if v.delayed == nil {
+		if !str.send(v) {
 			close(str.out)
 			return
-		case str.out <- v:
 		}
 	}
 	mplus(str, str2, str1)
@@ -80,20 +67,12 @@ func conj(g1, g2 goal) goal {
 }
 
 func bind(str, str1 stream, g goal) {
-	var v state
-	var ok bool
-	select {
-	case <-str.ctx.Done():
-		close(str.out)
-		return
-	case v, ok = <-str1.out:
-	}
+	v, ok := str1.receive()
 	if !ok {
 		close(str.out)
 		return
 	}
 	if v.delayed != nil {
-		go v.delayed()
 		bind(str, str1, g)
 		return
 	}

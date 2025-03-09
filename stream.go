@@ -16,6 +16,27 @@ func newStream(ctx context.Context) stream {
 	}
 }
 
+func (s stream) send(st state) bool {
+	select {
+	case <-s.ctx.Done():
+		return false
+	case s.out <- st:
+		return true
+	}
+}
+
+func (s stream) receive() (state, bool) {
+	select {
+	case <-s.ctx.Done():
+		return state{}, false
+	case v, ok := <-s.out:
+		if ok && v.delayed != nil {
+			go v.delayed()
+		}
+		return v, ok
+	}
+}
+
 // link two streams: send in from parent to child, out from child to parent
 func link(parent, child stream) {
 Loop:
@@ -27,10 +48,8 @@ Loop:
 			if !ok {
 				break Loop
 			}
-			select {
-			case <-parent.ctx.Done():
+			if !parent.send(st) {
 				break Loop
-			case parent.out <- st:
 			}
 		}
 	}
@@ -44,13 +63,11 @@ func delay(f func() goal) goal {
 	return func(ctx context.Context, st state) stream {
 		str := newStream(ctx)
 		go func() {
-			select {
-			case <-str.ctx.Done():
+			if !str.send(state{delayed: func() {
+				link(str, f()(ctx, st))
+			}}) {
 				close(str.out)
 				return
-			case str.out <- state{delayed: func() {
-				link(str, f()(ctx, st))
-			}}:
 			}
 		}()
 		return str
@@ -61,7 +78,6 @@ func takeAll(str stream) []state {
 	states := []state{}
 	for st := range str.out {
 		if st.delayed != nil {
-			go st.delayed()
 			continue
 		}
 		states = append(states, st)
@@ -78,7 +94,6 @@ func takeN(n int, str stream) []state {
 			return states
 		}
 		if st.delayed != nil {
-			go st.delayed()
 			continue
 		}
 		states = append(states, st)

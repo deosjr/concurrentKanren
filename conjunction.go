@@ -53,8 +53,8 @@ func conj_sce(g1, g2 goal) goal {
 						go f()
 						return
 					}
-				    cancelStr2()
-				    link(str, str1)
+					cancelStr2()
+					link(str, str1)
 				}
 			}
 			f()
