@@ -78,6 +78,7 @@ func takeAll(str stream) []state {
 	states := []state{}
 	for st := range str.out {
 		if st.delayed != nil {
+            go st.delayed()
 			continue
 		}
 		states = append(states, st)
@@ -94,6 +95,7 @@ func takeN(n int, str stream) []state {
 			return states
 		}
 		if st.delayed != nil {
+            go st.delayed()
 			continue
 		}
 		states = append(states, st)

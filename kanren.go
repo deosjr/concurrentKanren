@@ -43,13 +43,13 @@ func disj(g1, g2 goal) goal {
 }
 
 func mplus(str, str1, str2 stream) {
-	v, ok := str1.receive()
+	st, ok := str1.receive()
 	if !ok {
 		link(str, str2)
 		return
 	}
-	if v.delayed == nil {
-		if !str.send(v) {
+	if st.delayed == nil {
+		if !str.send(st) {
 			close(str.out)
 			return
 		}
@@ -68,12 +68,12 @@ func conj(g1, g2 goal) goal {
 }
 
 func bind(str, str1 stream, g goal) {
-	v, ok := str1.receive()
+	st, ok := str1.receive()
 	if !ok {
 		close(str.out)
 		return
 	}
-	if v.delayed != nil {
+	if st.delayed != nil {
 		bind(str, str1, g)
 		return
 	}
@@ -81,7 +81,7 @@ func bind(str, str1 stream, g goal) {
 	go func() {
 		bind(bstr, str1, g)
 	}()
-	mplus(str, g(str.ctx, v), bstr)
+	mplus(str, g(str.ctx, st), bstr)
 }
 
 func disj_plus(goals ...goal) goal {
