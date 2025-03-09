@@ -25,6 +25,16 @@ type pair struct {
 	cdr expression
 }
 
+func list(e ...expression) expression {
+	if len(e) == 0 {
+		return emptylist
+	}
+	if len(e) == 1 {
+		return pair{e[0], emptylist}
+	}
+	return pair{e[0], list(e[1:]...)}
+}
+
 // remainder is formatting logic
 
 func (n number) String() string {

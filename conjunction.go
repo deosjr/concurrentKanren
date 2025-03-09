@@ -38,7 +38,7 @@ func conj_sce(g1, g2 goal) goal {
 					case <-str.ctx.Done():
 						close(str.out)
 						return
-					case str1.out <- st:
+					case str.out <- st:
 					}
 					go link(str, str1)
 					return
@@ -53,9 +53,9 @@ func conj_sce(g1, g2 goal) goal {
 						go f()
 						return
 					}
+				    cancelStr2()
+				    link(str, str1)
 				}
-				cancelStr2()
-				bind(str, str1, g2)
 			}
 			f()
 		}()

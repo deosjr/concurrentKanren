@@ -4,7 +4,7 @@ package main
 const n0 = number(0)
 const n1 = number(1)
 
-var p1 = pair{n1, emptylist}
+var p1 = list(n1)
 
 func buildNum(n int) expression {
 	if n < 0 {
@@ -64,7 +64,7 @@ func adderO(d, n, m, r expression) goal {
 			conj_plus(equalo(n1, d), equalo(emptylist, m), adderO(n0, n, p1, r)),
 			conj_plus(equalo(n1, d), equalo(emptylist, n), posO(m), adderO(n0, p1, m, r)),
 			conj_plus(equalo(p1, n), equalo(p1, m), fresh2(func(a, c expression) goal {
-				return conj(equalo(pair{a, pair{c, emptylist}}, r), fullAdderO(d, n1, n1, a, c))
+				return conj(equalo(list(a, c), r), fullAdderO(d, n1, n1, a, c))
 			})),
 			conj(equalo(p1, n), genAdderO(d, n, m, r)),
 			conj_plus(equalo(p1, m), gt1O(n), gt1O(r), adderO(d, p1, n, r)),

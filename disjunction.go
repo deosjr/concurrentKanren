@@ -4,6 +4,7 @@ import (
 	"context"
 )
 
+// tempted to use a buffered channel, but we want the buffer size dynamic (?)
 func disj_conc(goals ...goal) goal {
 	return func(ctx context.Context, st state) stream {
 		str := newStream(ctx)

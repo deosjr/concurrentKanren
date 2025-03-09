@@ -1,5 +1,9 @@
 package main
 
+import (
+	"fmt"
+)
+
 func nevero() goal {
 	return delay(func() goal { return nevero() })
 }
@@ -18,12 +22,11 @@ func sevens(x expression) goal {
 
 func main() {
 	// actual heavy goal to benchmark concurrency with
-	// arithmetic using disj_plus: ~14s
-	// arithmetic using disj_conc: ~11s
-	run(fresh3(func(q, x, y expression) goal {
+	out := run(fresh3(func(q, x, y expression) goal {
 		return conj(
 			equalo(q, pair{x, pair{y, emptylist}}),
 			plusO(x, y, buildNum(10000)),
 		)
 	}))
+	fmt.Println(len(out))
 }
