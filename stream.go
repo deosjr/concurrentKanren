@@ -26,15 +26,11 @@ func (s stream) send(st state) bool {
 }
 
 func (s stream) receive() (state, bool) {
-	select {
-	case <-s.ctx.Done():
-		return state{}, false
-	case v, ok := <-s.out:
-		if ok && v.delayed != nil {
-			go v.delayed()
-		}
-		return v, ok
+    st, ok := <-s.out
+	if ok && st.delayed != nil {
+		go st.delayed()
 	}
+	return st, ok
 }
 
 // link two streams: send in from parent to child, out from child to parent

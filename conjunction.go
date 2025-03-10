@@ -20,9 +20,6 @@ func conj_sce(g1, g2 goal) goal {
 			var f func()
 			f = func() {
 				select {
-				case <-str.ctx.Done():
-					close(str.out)
-					return
 				case st, ok := <-str1.out:
 					if !ok {
 						close(str.out)
