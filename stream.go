@@ -26,7 +26,7 @@ func (s stream) send(st state) bool {
 }
 
 func (s stream) receive() (state, bool) {
-    st, ok := <-s.out
+	st, ok := <-s.out
 	if ok && st.delayed != nil {
 		go st.delayed()
 	}
@@ -72,9 +72,12 @@ func delay(f func() goal) goal {
 
 func takeAll(str stream) []state {
 	states := []state{}
-	for st := range str.out {
+	for {
+		st, ok := str.receive()
+		if !ok {
+			break
+		}
 		if st.delayed != nil {
-            go st.delayed()
 			continue
 		}
 		states = append(states, st)
@@ -86,12 +89,11 @@ func takeN(n int, str stream) []state {
 	states := []state{}
 	i := 0
 	for i < n {
-		st, ok := <-str.out
+		st, ok := str.receive()
 		if !ok {
 			return states
 		}
 		if st.delayed != nil {
-            go st.delayed()
 			continue
 		}
 		states = append(states, st)
