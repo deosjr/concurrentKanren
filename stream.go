@@ -2,56 +2,31 @@ package main
 
 import (
 	"context"
+	"math/rand/v2"
+	"sync"
 )
 
-type stream struct {
-	out chan state
-	ctx context.Context
+// functionality of a stream is mostly subsumed by work
+// what remains is a unique identifier, more akin to a pid
+type stream int64
+
+// TODO: something less collision-prone
+func newStream() stream {
+	return stream(rand.Int64())
 }
 
-func newStream(ctx context.Context) stream {
-	return stream{
-		out: make(chan state),
-		ctx: ctx,
+func delay(f func() goal) goal {
+	return func(ctx context.Context, st state) stream {
+		str := newStream()
+		delayed := state{delayed: func() {
+			reqch <- wForward(f()(ctx, st), str)
+		}}
+		reqch <- wSend(ctx, str, delayed, func() {})
+		return str
 	}
 }
 
-func (s stream) send(st state) bool {
-	select {
-	case <-s.ctx.Done():
-		return false
-	case s.out <- st:
-		return true
-	}
-}
-
-func (s stream) receive() (state, bool) {
-    st, ok := <-s.out
-	if ok && st.delayed != nil {
-		go st.delayed()
-	}
-	return st, ok
-}
-
-// link two streams: send in from parent to child, out from child to parent
-func link(parent, child stream) {
-Loop:
-	for {
-		select {
-		case <-parent.ctx.Done():
-			break Loop
-		case st, ok := <-child.out:
-			if !ok {
-				break Loop
-			}
-			if !parent.send(st) {
-				break Loop
-			}
-		}
-	}
-	close(parent.out)
-}
-
+/*
 // TODO: delay currently relies on receiver to continue the delayed function
 // especially if distributed over multiple machines, this moves the calculation
 // upwards in a way we do not want. Something to investigate further
@@ -69,33 +44,43 @@ func delay(f func() goal) goal {
 		return str
 	}
 }
+*/
 
-func takeAll(str stream) []state {
+func takeAll(ctx context.Context, str stream) []state {
 	states := []state{}
-	for st := range str.out {
-		if st.delayed != nil {
-            go st.delayed()
-			continue
+	var wg sync.WaitGroup
+	var f func(message)
+	f = func(m message) {
+		if !m.ok {
+			wg.Done()
+			return
 		}
-		states = append(states, st)
+		// delay?
+		states = append(states, m.st)
+		reqch <- wReceive(ctx, str, f)
 	}
+	wg.Add(1)
+	reqch <- wReceive(ctx, str, f)
+	wg.Wait()
 	return states
 }
 
-func takeN(n int, str stream) []state {
+func takeN(ctx context.Context, n int, str stream) []state {
 	states := []state{}
-	i := 0
-	for i < n {
-		st, ok := <-str.out
-		if !ok {
-			return states
+	var wg sync.WaitGroup
+	var f func(message)
+	f = func(m message) {
+		if !m.ok || n == 0 {
+			wg.Done()
+			return
 		}
-		if st.delayed != nil {
-            go st.delayed()
-			continue
-		}
-		states = append(states, st)
-		i++
+		// delay?
+		states = append(states, m.st)
+		n = n - 1
+		reqch <- wReceive(ctx, str, f)
 	}
+	wg.Add(1)
+	reqch <- wReceive(ctx, str, f)
+	wg.Wait()
 	return states
 }

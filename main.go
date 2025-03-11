@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	//"fmt"
 )
 
 func nevero() goal {
@@ -21,12 +21,15 @@ func sevens(x expression) goal {
 }
 
 func main() {
-	// actual heavy goal to benchmark concurrency with
-	out := run(fresh3(func(q, x, y expression) goal {
-		return conj(
-			equalo(q, list(x, y)),
-			plusO(x, y, buildNum(10000)),
-		)
+	startWorkers()
+    // actual heavy goal to benchmark concurrency with
+    run(fresh3(func(q, x, y expression) goal {
+            return conj(
+                    equalo(q, list(x, y)),
+                    plusO(x, y, buildNum(10000)),
+            )
+	//out := run(callfresh(func(q expression) goal {
+		//return disj(equalo(q, number(42)), equalo(q, number(43)))
 	}))
-	fmt.Println(len(out))
+	//fmt.Println(out)
 }

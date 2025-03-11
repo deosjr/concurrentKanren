@@ -1,5 +1,6 @@
 package main
 
+/*
 import (
 	"context"
 )
@@ -60,3 +61,4 @@ func disj_conc(goals ...goal) goal {
 		return str
 	}
 }
+*/

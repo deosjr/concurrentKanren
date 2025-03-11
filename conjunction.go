@@ -1,5 +1,6 @@
 package main
 
+/*
 import (
 	"context"
 )
@@ -59,3 +60,4 @@ func conj_sce(g1, g2 goal) goal {
 		return str
 	}
 }
+*/
