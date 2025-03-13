@@ -20,33 +20,31 @@ func conj_sce(g1, g2 goal) goal {
 			var f func()
 			f = func() {
 				select {
-				case st, ok := <-str1.out:
+				case st, ok := <-*str1.out:
 					if !ok {
-						close(str.out)
+						close(*str.out)
 						return
 					}
-					if st.delayed != nil {
-						go st.delayed()
+					if st.delayed {
 						f()
 						return
 					}
 					cancelStr2()
 					select {
 					case <-str.ctx.Done():
-						close(str.out)
+						close(*str.out)
 						return
-					case str.out <- st:
+					case *str.out <- st:
 					}
 					link(str, str1)
 					return
-				case st, ok := <-str2.out:
+				case st, ok := <-*str2.out:
 					if !ok {
 						// short-circuit
-						close(str.out)
+						close(*str.out)
 						return
 					}
-					if st.delayed != nil {
-						go st.delayed()
+					if st.delayed {
 						f()
 						return
 					}

@@ -22,7 +22,7 @@ func disj_conc(goals ...goal) goal {
 					unproductive[i] = struct{}{}
 					continue
 				}
-				if x.delayed != nil {
+				if x.delayed {
 					continue
 				}
 				buffer = append(buffer, x)
@@ -43,7 +43,6 @@ func disj_conc(goals ...goal) goal {
 			}
 			if len(buffer) > 0 {
 				if !str.send(buffer[0]) {
-					close(str.out)
 					return
 				}
 				buffer = buffer[1:]
@@ -51,7 +50,7 @@ func disj_conc(goals ...goal) goal {
 				return
 			}
 			if len(streams) == 0 {
-				close(str.out)
+				close(*str.out)
 				return
 			}
 			panic("should never happen: productive streams remain but we didn't find anything to return?")

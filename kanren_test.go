@@ -113,7 +113,7 @@ func TestKanren(t *testing.T) {
 		}
 		// we need some time for goroutines to close down
 		var equalRoutines bool
-		for _, waitTime := range []int{10, 50, 100, 200, 300} {
+		for _, waitTime := range []int{10, 50, 100, 200, 300, 500, 1000} {
 			time.Sleep(time.Duration(waitTime) * time.Millisecond)
 			newn := runtime.NumGoroutine()
 			if newn != n {

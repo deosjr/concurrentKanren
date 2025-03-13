@@ -13,11 +13,10 @@ func equalo(u, v expression) goal {
 			s, ok := st.sub.unify(u, v)
 			if ok {
 				if !str.send(state{sub: s, vc: st.vc}) {
-					close(str.out)
 					return
 				}
 			}
-			close(str.out)
+			close(*str.out)
 		}()
 		return str
 	}
@@ -48,9 +47,8 @@ func mplus(str, str1, str2 stream) {
 		link(str, str2)
 		return
 	}
-	if st.delayed == nil {
+	if !st.delayed {
 		if !str.send(st) {
-			close(str.out)
 			return
 		}
 	}
@@ -70,10 +68,10 @@ func conj(g1, g2 goal) goal {
 func bind(str, str1 stream, g goal) {
 	st, ok := str1.receive()
 	if !ok {
-		close(str.out)
+		close(*str.out)
 		return
 	}
-	if st.delayed != nil {
+	if st.delayed {
 		bind(str, str1, g)
 		return
 	}

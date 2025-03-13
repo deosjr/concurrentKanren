@@ -7,7 +7,8 @@ import (
 type state struct {
 	sub     substitution
 	vc      int
-	delayed func() // signals an immature stream if not nil
+	delayed bool        // signals an immature stream if true
+	link    *chan state // if not nil, signals chan link
 }
 
 var emptystate = state{sub: nil, vc: 0}
