@@ -1,22 +1,19 @@
 package main
 
-import (
-	"context"
-)
-
 // tempted to use a buffered channel, but we want the buffer size dynamic (?)
 func disj_conc(goals ...goal) goal {
-	return func(ctx context.Context, st state) stream {
-		str := newStream(ctx)
+	return func(st state) stream {
+		str := newStream()
 		buffer := []state{}
 		streams := []stream{}
 		for _, g := range goals {
-			streams = append(streams, g(ctx, st))
+			streams = append(streams, g(st))
 		}
 		refillBuffer := func() {
 			buffer = []state{}
 			unproductive := map[int]struct{}{}
 			for i, s := range streams {
+				s.request()
 				x, ok := s.receive()
 				if !ok {
 					unproductive[i] = struct{}{}
@@ -38,13 +35,18 @@ func disj_conc(goals ...goal) goal {
 		}
 		var mplusplus func()
 		mplusplus = func() {
+			if !str.more() {
+				for _, s := range streams {
+					*s.in <- reqMsg{done: true}
+					//close(*str.out)   // ?
+				}
+				return
+			}
 			for len(buffer) == 0 && len(streams) > 0 {
 				refillBuffer()
 			}
 			if len(buffer) > 0 {
-				if !str.send(buffer[0]) {
-					return
-				}
+				str.send(buffer[0])
 				buffer = buffer[1:]
 				mplusplus()
 				return

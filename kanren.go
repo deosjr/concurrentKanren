@@ -1,20 +1,18 @@
 package main
 
-import (
-	"context"
-)
-
-type goal func(context.Context, state) stream
+type goal func(state) stream
 
 func equalo(u, v expression) goal {
-	return func(ctx context.Context, st state) stream {
-		str := newStream(ctx)
+	return func(st state) stream {
+		str := newStream()
 		go func() {
+			if !str.more() {
+				close(*str.out)
+				return
+			}
 			s, ok := st.sub.unify(u, v)
 			if ok {
-				if !str.send(state{sub: s, vc: st.vc}) {
-					return
-				}
+				str.send(state{sub: s, vc: st.vc})
 			}
 			close(*str.out)
 		}()
@@ -23,18 +21,18 @@ func equalo(u, v expression) goal {
 }
 
 func callfresh(f func(x expression) goal) goal {
-	return func(ctx context.Context, st state) stream {
+	return func(st state) stream {
 		v := variable(st.vc)
 		newstate := state{sub: st.sub, vc: st.vc + 1}
-		return f(v)(ctx, newstate)
+		return f(v)(newstate)
 	}
 }
 
 func disj(g1, g2 goal) goal {
-	return func(ctx context.Context, st state) stream {
-		str := newStream(ctx)
+	return func(st state) stream {
+		str := newStream()
 		go func() {
-			mplus(str, g1(ctx, st), g2(ctx, st))
+			mplus(str, g1(st), g2(st))
 
 		}()
 		return str
@@ -42,44 +40,58 @@ func disj(g1, g2 goal) goal {
 }
 
 func mplus(str, str1, str2 stream) {
+	if !str.more() {
+		*str1.in <- reqMsg{done: true}
+		*str2.in <- reqMsg{done: true}
+		close(*str.out)
+		return
+	}
+	str1.request()
 	st, ok := str1.receive()
 	if !ok {
+		str.request()
 		link(str, str2)
 		return
 	}
-	if !st.delayed {
-		if !str.send(st) {
-			return
-		}
+	if st.delayed {
+		str.request()
+	} else {
+		str.send(st)
 	}
 	mplus(str, str2, str1)
 }
 
 func conj(g1, g2 goal) goal {
-	return func(ctx context.Context, st state) stream {
-		str := newStream(ctx)
+	return func(st state) stream {
+		str := newStream()
 		go func() {
-			bind(str, g1(ctx, st), g2)
+			bind(str, g1(st), g2)
 		}()
 		return str
 	}
 }
 
 func bind(str, str1 stream, g goal) {
+	if !str.more() {
+		*str1.in <- reqMsg{done: true}
+		close(*str.out)
+	}
+	str1.request()
 	st, ok := str1.receive()
 	if !ok {
 		close(*str.out)
 		return
 	}
+	str.request()
 	if st.delayed {
 		bind(str, str1, g)
 		return
 	}
-	bstr := newStream(str.ctx)
+	bstr := newStream()
 	go func() {
 		bind(bstr, str1, g)
 	}()
-	mplus(str, g(str.ctx, st), bstr)
+	mplus(str, g(st), bstr)
 }
 
 func disj_plus(goals ...goal) goal {
@@ -97,18 +109,14 @@ func conj_plus(goals ...goal) goal {
 }
 
 func run(goals ...goal) []expression {
-	ctx, cancel := context.WithCancel(context.Background())
 	g := conj_plus(goals...)
-	out := mKreify(takeAll(g(ctx, emptystate)))
-	cancel()
+	out := mKreify(takeAll(g(emptystate)))
 	return out
 }
 
 func runN(n int, goals ...goal) []expression {
-	ctx, cancel := context.WithCancel(context.Background())
 	g := conj_plus(goals...)
-	out := mKreify(takeN(n, g(ctx, emptystate)))
-	cancel()
+	out := mKreify(takeN(n, g(emptystate)))
 	return out
 }
 
@@ -124,28 +132,28 @@ func mKreify(states []state) []expression {
 // for now we duplicate the implementation of callfresh
 
 func fresh1(f func(expression) goal) goal {
-	return func(ctx context.Context, st state) stream {
+	return func(st state) stream {
 		x := variable(st.vc)
 		newstate := state{sub: st.sub, vc: st.vc + 1}
-		return f(x)(ctx, newstate)
+		return f(x)(newstate)
 	}
 }
 
 func fresh2(f func(expression, expression) goal) goal {
-	return func(ctx context.Context, st state) stream {
+	return func(st state) stream {
 		x := variable(st.vc)
 		y := variable(st.vc + 1)
 		newstate := state{sub: st.sub, vc: st.vc + 2}
-		return f(x, y)(ctx, newstate)
+		return f(x, y)(newstate)
 	}
 }
 
 func fresh3(f func(expression, expression, expression) goal) goal {
-	return func(ctx context.Context, st state) stream {
+	return func(st state) stream {
 		x := variable(st.vc)
 		y := variable(st.vc + 1)
 		z := variable(st.vc + 2)
 		newstate := state{sub: st.sub, vc: st.vc + 3}
-		return f(x, y, z)(ctx, newstate)
+		return f(x, y, z)(newstate)
 	}
 }
