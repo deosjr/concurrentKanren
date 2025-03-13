@@ -35,15 +35,15 @@ func disj_conc(goals ...goal) goal {
 		}
 		var mplusplus func()
 		mplusplus = func() {
+			for len(buffer) == 0 && len(streams) > 0 {
+				refillBuffer()
+			}
 			if !str.more() {
 				for _, s := range streams {
 					*s.in <- reqMsg{done: true}
 					//close(*str.out)   // ?
 				}
 				return
-			}
-			for len(buffer) == 0 && len(streams) > 0 {
-				refillBuffer()
 			}
 			if len(buffer) > 0 {
 				str.send(buffer[0])

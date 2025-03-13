@@ -6,11 +6,11 @@ func equalo(u, v expression) goal {
 	return func(st state) stream {
 		str := newStream()
 		go func() {
+			s, ok := st.sub.unify(u, v)
 			if !str.more() {
 				close(*str.out)
 				return
 			}
-			s, ok := st.sub.unify(u, v)
 			if ok {
 				str.send(state{sub: s, vc: st.vc})
 			}
@@ -40,13 +40,13 @@ func disj(g1, g2 goal) goal {
 }
 
 func mplus(str, str1, str2 stream) {
+	str1.request()
 	if !str.more() {
 		*str1.in <- reqMsg{done: true}
 		*str2.in <- reqMsg{done: true}
 		close(*str.out)
 		return
 	}
-	str1.request()
 	st, ok := str1.receive()
 	if !ok {
 		str.request()
@@ -72,11 +72,11 @@ func conj(g1, g2 goal) goal {
 }
 
 func bind(str, str1 stream, g goal) {
+	str1.request()
 	if !str.more() {
 		*str1.in <- reqMsg{done: true}
 		close(*str.out)
 	}
-	str1.request()
 	st, ok := str1.receive()
 	if !ok {
 		close(*str.out)

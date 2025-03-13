@@ -67,16 +67,11 @@ func delay(f func() goal) goal {
 	return func(st state) stream {
 		str := newStream()
 		go func() {
-			if !str.more() {
-				close(*str.out)
-				return
-			}
 			str.send(state{delayed: true})
 			if !str.more() {
 				close(*str.out)
 				return
 			}
-			*str.in <- reqMsg{done: false}
 			link(str, f()(st))
 		}()
 		return str
