@@ -34,6 +34,21 @@ func disj(g1, g2 goal) goal {
 }
 
 func mplus(str, str1, str2 stream) {
+	if str1.unit() {
+		if !str.more() {
+			*str2.in <- reqMsg{done: true}
+			close(*str.out)
+			return
+		}
+		st, ok := str1.receive()
+		if !ok {
+			str.request()
+		} else {
+			str.send(st)
+		}
+		link(str, str2)
+		return
+	}
 	str1.request()
 	if !str.more() {
 		*str1.in <- reqMsg{done: true}
