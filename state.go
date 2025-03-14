@@ -1,41 +1,22 @@
 package main
 
-import (
-	"slices"
-)
-
 type state struct {
-	sub     substitution
+	sub     *substitution
 	vc      int
 	delayed bool // signals an immature stream if true
 }
 
 var emptystate = state{sub: nil, vc: 0}
 
-type substitution []expression
-
-func (s substitution) get(v variable) (expression, bool) {
-	key := int(v)
-	if key >= len(s) {
-		return v, false
-	}
-	e := s[key]
-	return e, e != nil
+func (s *substitution) get(v variable) (expression, bool) {
+	return s.Lookup(v)
 }
 
-func (s substitution) put(v variable, e expression) substitution {
-	var news substitution
-	key := int(v)
-	if len(s) <= key {
-		news = slices.Concat(s, make(substitution, key-len(s)+1))
-	} else {
-		news = slices.Clone(s)
-	}
-	news[key] = e
-	return news
+func (s *substitution) put(v variable, e expression) *substitution {
+	return s.Insert(v, e)
 }
 
-func (s substitution) walk(u expression) expression {
+func (s *substitution) walk(u expression) expression {
 	uvar, ok := u.(variable)
 	if !ok {
 		return u
@@ -47,7 +28,7 @@ func (s substitution) walk(u expression) expression {
 	return s.walk(e)
 }
 
-func (s substitution) walkstar(u expression) expression {
+func (s *substitution) walkstar(u expression) expression {
 	v := s.walk(u)
 	switch t := v.(type) {
 	case variable:
@@ -58,15 +39,14 @@ func (s substitution) walkstar(u expression) expression {
 	return v
 }
 
-// TODO: immutable data structure with reuse, such as an AVL tree or HAMT
-func (s substitution) extend(v variable, e expression) (substitution, bool) {
+func (s *substitution) extend(v variable, e expression) (*substitution, bool) {
 	if s.occursCheck(v, e) {
 		return nil, false
 	}
 	return s.put(v, e), true
 }
 
-func (s substitution) unify(u, v expression) (substitution, bool) {
+func (s *substitution) unify(u, v expression) (*substitution, bool) {
 	u0 := s.walk(u)
 	v0 := s.walk(v)
 	if u0 == v0 {
@@ -96,7 +76,7 @@ func (s substitution) unify(u, v expression) (substitution, bool) {
 	return nil, false
 }
 
-func (s substitution) occursCheck(v variable, e expression) bool {
+func (s *substitution) occursCheck(v variable, e expression) bool {
 	e0 := s.walk(e)
 	if evar, ok := e0.(variable); ok {
 		return v == evar
