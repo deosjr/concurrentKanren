@@ -2,9 +2,9 @@ package main
 
 import (
 	"reflect"
-	//"runtime"
+	"runtime"
 	"testing"
-	//"time"
+	"time"
 )
 
 func TestKanren(t *testing.T) {
@@ -18,6 +18,13 @@ func TestKanren(t *testing.T) {
 			goal: callfresh(func(q expression) goal {
 				return equalo(q, n5)
 			}),
+			want: []expression{n5},
+		},
+		{
+			goal: callfresh(func(q expression) goal {
+				return equalo(q, n5)
+			}),
+			take: 3,
 			want: []expression{n5},
 		},
 		{
@@ -38,7 +45,7 @@ func TestKanren(t *testing.T) {
 				return disj(fives(x), disj(sixes(x), sevens(x)))
 			}),
 			take: 9,
-            // unit stream handler fixes binary trampolining unfairness!?
+			// unit stream handler fixes binary trampolining unfairness!?
 			//want: []expression{n5, n6, n5, n7, n5, n6, n5, n7, n5},
 			want: []expression{n5, n6, n7, n5, n6, n7, n5, n6, n7},
 		},
@@ -47,7 +54,7 @@ func TestKanren(t *testing.T) {
 				return disj_plus(fives(x), sixes(x), sevens(x))
 			}),
 			take: 9,
-            // unit stream handler fixes binary trampolining unfairness!?
+			// unit stream handler fixes binary trampolining unfairness!?
 			//want: []expression{n5, n6, n5, n7, n5, n6, n5, n7, n5},
 			want: []expression{n5, n6, n7, n5, n6, n7, n5, n6, n7},
 		},
@@ -107,7 +114,7 @@ func TestKanren(t *testing.T) {
 			want: []expression{},
 		},
 	} {
-		//n := runtime.NumGoroutine()
+		n := runtime.NumGoroutine()
 		var got []expression
 		if tt.take == 0 {
 			got = run(tt.goal)
@@ -117,7 +124,6 @@ func TestKanren(t *testing.T) {
 		if !reflect.DeepEqual(got, tt.want) {
 			t.Errorf("%d) got %v want %v", i, got, tt.want)
 		}
-        /*
 		// we need some time for goroutines to close down
 		var equalRoutines bool
 		for _, waitTime := range []int{10, 50, 100, 200, 300} {
@@ -131,6 +137,5 @@ func TestKanren(t *testing.T) {
 		if !equalRoutines {
 			t.Fatalf("%d) number of goroutines has changed from %d to %d!", i, n, runtime.NumGoroutine())
 		}
-        */
 	}
 }

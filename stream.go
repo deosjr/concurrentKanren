@@ -84,11 +84,16 @@ func delay(f func() goal) goal {
 	return func(st state) stream {
 		str := newStream()
 		go func() {
+			if !str.more() {
+				close(*str.out)
+				return
+			}
 			str.send(state{delayed: true})
 			if !str.more() {
 				close(*str.out)
 				return
 			}
+			str.request()
 			link(str, f()(st))
 		}()
 		return str
@@ -118,7 +123,9 @@ func takeN(n int, str stream) []state {
 		str.request()
 		st, ok := str.receive()
 		if !ok {
-	        *str.in <- reqMsg{done: true}
+			if !str.unit() {
+				*str.in <- reqMsg{done: true}
+			}
 			return states
 		}
 		if st.delayed {
@@ -127,6 +134,9 @@ func takeN(n int, str stream) []state {
 		states = append(states, st)
 		i++
 	}
-	*str.in <- reqMsg{done: true}
+	if !str.unit() {
+		*str.in <- reqMsg{done: true}
+	}
+	str.receive()
 	return states
 }
