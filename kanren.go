@@ -4,18 +4,12 @@ type goal func(state) stream
 
 func equalo(u, v expression) goal {
 	return func(st state) stream {
-		str := newStream()
-		go func() {
-			s, ok := st.sub.unify(u, v)
-			if !str.more() {
-				close(*str.out)
-				return
-			}
-			if ok {
-				str.send(state{sub: s, vc: st.vc})
-			}
-			close(*str.out)
-		}()
+		str := newUnitStream()
+		s, ok := st.sub.unify(u, v)
+		if ok {
+			str.send(state{sub: s, vc: st.vc})
+		}
+		close(*str.out)
 		return str
 	}
 }
@@ -72,6 +66,20 @@ func conj(g1, g2 goal) goal {
 }
 
 func bind(str, str1 stream, g goal) {
+	if str1.unit() {
+		if !str.more() {
+			close(*str.out)
+			return
+		}
+		st, ok := str1.receive()
+		if !ok {
+			close(*str.out)
+			return
+		}
+		str.request()
+		link(str, g(st))
+		return
+	}
 	str1.request()
 	if !str.more() {
 		*str1.in <- reqMsg{done: true}

@@ -24,11 +24,26 @@ func newStream() stream {
 	}
 }
 
+func newUnitStream() stream {
+	out := make(chan stateMsg, 1)
+	return stream{out: &out}
+}
+
+func (s stream) unit() bool {
+	return cap(*s.out) == 1
+}
+
 func (s stream) request() {
+	if s.unit() {
+		return
+	}
 	*s.in <- reqMsg{done: false}
 }
 
 func (s stream) more() bool {
+	if s.unit() {
+		return len(*s.out) > 0
+	}
 	req := <-*s.in
 	if req.done {
 		return false
@@ -59,7 +74,9 @@ func (s stream) receive() (state, bool) {
 
 // link two streams
 func link(parent, child stream) {
-	*child.in <- reqMsg{in: parent.in}
+	if !child.unit() {
+		*child.in <- reqMsg{in: parent.in}
+	}
 	*parent.out <- stateMsg{out: child.out}
 }
 
