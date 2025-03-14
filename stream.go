@@ -118,6 +118,7 @@ func takeN(n int, str stream) []state {
 		str.request()
 		st, ok := str.receive()
 		if !ok {
+	        *str.in <- reqMsg{done: true}
 			return states
 		}
 		if st.delayed {
