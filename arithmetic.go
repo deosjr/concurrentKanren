@@ -93,18 +93,14 @@ func adderO(d, n, m, r expression) goal {
 }
 
 func genAdderO(d, n, m, r expression) goal {
-	return fresh3(func(a, b, c expression) goal {
-		return fresh3(func(x, y, z expression) goal {
-			return fresh1(func(e expression) goal {
-				return conj_plus(
-					equalo(pair{a, x}, n),
-					equalo(pair{b, y}, m), posO(y),
-					equalo(pair{c, z}, r), posO(z),
-					fullAdderO(d, a, b, c, e),
-					adderO(e, x, y, z),
-				)
-			})
-		})
+	return fresh7(func(a, b, c, e, x, y, z expression) goal {
+		return conj_plus(
+			equalo(pair{a, x}, n),
+			equalo(pair{b, y}, m), posO(y),
+			equalo(pair{c, z}, r), posO(z),
+			fullAdderO(d, a, b, c, e),
+			adderO(e, x, y, z),
+		)
 	})
 }
 

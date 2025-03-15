@@ -49,13 +49,13 @@ func mplus(str, str1, str2 stream) {
 		link(str, str2)
 		return
 	}
-	str1.request()
 	if !str.more() {
 		*str1.in <- reqMsg{done: true}
 		*str2.in <- reqMsg{done: true}
 		close(*str.out)
 		return
 	}
+	str1.request()
 	st, ok := str1.receive()
 	if !ok {
 		str.request()
@@ -178,5 +178,19 @@ func fresh3(f func(expression, expression, expression) goal) goal {
 		z := variable(st.vc + 2)
 		newstate := state{sub: st.sub, vc: st.vc + 3}
 		return f(x, y, z)(newstate)
+	}
+}
+
+func fresh7(f func(expression, expression, expression, expression, expression, expression, expression) goal) goal {
+	return func(st state) stream {
+		x1 := variable(st.vc)
+		x2 := variable(st.vc + 1)
+		x3 := variable(st.vc + 2)
+		x4 := variable(st.vc + 3)
+		x5 := variable(st.vc + 4)
+		x6 := variable(st.vc + 5)
+		x7 := variable(st.vc + 6)
+		newstate := state{sub: st.sub, vc: st.vc + 7}
+		return f(x1, x2, x3, x4, x5, x6, x7)(newstate)
 	}
 }

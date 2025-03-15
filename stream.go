@@ -89,11 +89,6 @@ func delay(f func() goal) goal {
 				return
 			}
 			str.send(state{delayed: true})
-			if !str.more() {
-				close(*str.out)
-				return
-			}
-			str.request()
 			link(str, f()(st))
 		}()
 		return str
