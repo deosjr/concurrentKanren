@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-    "runtime"
 )
 
 func nevero() goal {
@@ -22,11 +21,6 @@ func sevens(x expression) goal {
 }
 
 func main() {
-    out := runN(9, callfresh(func(x expression) goal {
-				return disj(fives(x), disj(sixes(x), sevens(x)))
-			}))
-
-/*
 	// actual heavy goal to benchmark concurrency with
 	out := run(fresh3(func(q, x, y expression) goal {
 		return conj(
@@ -34,10 +28,5 @@ func main() {
 			plusO(x, y, buildNum(10000)),
 		)
 	}))
-*/
 	fmt.Println(len(out))
-
-    b := make([]byte, 10000)
-    runtime.Stack(b, true)
-	fmt.Println(string(b))
 }

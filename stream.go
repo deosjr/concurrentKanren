@@ -8,6 +8,7 @@ type stream struct {
 type stateMsg struct {
 	state state
 	out   *chan stateMsg
+	both  bool
 }
 
 type reqMsg struct {
@@ -24,24 +25,24 @@ func newStream() stream {
 	}
 }
 
-func newUnitStream() stream {
-	out := make(chan stateMsg, 1)
+func newBoundedStream(size int) stream {
+	out := make(chan stateMsg, size)
 	return stream{out: &out}
 }
 
-func (s stream) unit() bool {
-	return cap(*s.out) == 1
+func (s stream) bounded() bool {
+	return cap(*s.out) != 0
 }
 
 func (s stream) request() {
-	if s.unit() {
+	if s.bounded() {
 		return
 	}
 	*s.in <- reqMsg{done: false}
 }
 
 func (s stream) more() bool {
-	if s.unit() {
+	if s.bounded() {
 		return len(*s.out) > 0
 	}
 	req := <-*s.in
@@ -67,6 +68,9 @@ func (s stream) receive() (state, bool) {
 		old := *s.out
 		*s.out = *msg.out
 		close(old)
+		if msg.both {
+			return msg.state, ok
+		}
 		return s.receive()
 	}
 	return msg.state, ok
@@ -74,10 +78,17 @@ func (s stream) receive() (state, bool) {
 
 // link two streams
 func link(parent, child stream) {
-	if !child.unit() {
+	if !child.bounded() {
 		*child.in <- reqMsg{in: parent.in}
 	}
 	*parent.out <- stateMsg{out: child.out}
+}
+
+func sendAndLink(parent, child stream, st state) {
+	if !child.bounded() {
+		*child.in <- reqMsg{in: parent.in}
+	}
+	*parent.out <- stateMsg{out: child.out, state: st, both: true}
 }
 
 func delay(f func() goal) goal {
@@ -89,6 +100,11 @@ func delay(f func() goal) goal {
 				return
 			}
 			str.send(state{delayed: true})
+			if !str.more() {
+				close(*str.out)
+				return
+			}
+			str.request()
 			link(str, f()(st))
 		}()
 		return str
@@ -118,9 +134,6 @@ func takeN(n int, str stream) []state {
 		str.request()
 		st, ok := str.receive()
 		if !ok {
-			if !str.unit() {
-				*str.in <- reqMsg{done: true}
-			}
 			return states
 		}
 		if st.delayed {
@@ -129,9 +142,8 @@ func takeN(n int, str stream) []state {
 		states = append(states, st)
 		i++
 	}
-	if !str.unit() {
+	if !str.bounded() {
 		*str.in <- reqMsg{done: true}
 	}
-	str.receive()
 	return states
 }

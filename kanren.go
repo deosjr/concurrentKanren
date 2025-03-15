@@ -4,7 +4,7 @@ type goal func(state) stream
 
 func equalo(u, v expression) goal {
 	return func(st state) stream {
-		str := newUnitStream()
+		str := newBoundedStream(1)
 		s, ok := st.sub.unify(u, v)
 		if ok {
 			str.send(state{sub: s, vc: st.vc})
@@ -34,7 +34,7 @@ func disj(g1, g2 goal) goal {
 }
 
 func mplus(str, str1, str2 stream) {
-	if str1.unit() {
+	if str1.bounded() {
 		if !str.more() {
 			*str2.in <- reqMsg{done: true}
 			close(*str.out)
@@ -43,10 +43,10 @@ func mplus(str, str1, str2 stream) {
 		st, ok := str1.receive()
 		if !ok {
 			str.request()
+			link(str, str2)
 		} else {
-			str.send(st)
+			sendAndLink(str, str2, st)
 		}
-		link(str, str2)
 		return
 	}
 	if !str.more() {
@@ -81,7 +81,7 @@ func conj(g1, g2 goal) goal {
 }
 
 func bind(str, str1 stream, g goal) {
-	if str1.unit() {
+	if str1.bounded() {
 		if !str.more() {
 			close(*str.out)
 			return

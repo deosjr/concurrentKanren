@@ -11,25 +11,18 @@ func disj_conc(goals ...goal) goal {
 		}
 		refillBuffer := func() {
 			buffer = []state{}
-			unproductive := map[int]struct{}{}
-			for i, s := range streams {
+			active := []stream{}
+			for _, s := range streams {
 				s.request()
 				x, ok := s.receive()
 				if !ok {
-					unproductive[i] = struct{}{}
 					continue
 				}
+				active = append(active, s)
 				if x.delayed {
 					continue
 				}
 				buffer = append(buffer, x)
-			}
-			active := []stream{}
-			for i, s := range streams {
-				if _, ok := unproductive[i]; ok {
-					continue
-				}
-				active = append(active, s)
 			}
 			streams = active
 		}
@@ -41,8 +34,8 @@ func disj_conc(goals ...goal) goal {
 			if !str.more() {
 				for _, s := range streams {
 					*s.in <- reqMsg{done: true}
-					//close(*str.out)   // ?
 				}
+				close(*str.out)
 				return
 			}
 			if len(buffer) > 0 {
