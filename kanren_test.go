@@ -45,7 +45,7 @@ func TestKanren(t *testing.T) {
 				return disj(fives(x), disj(sixes(x), sevens(x)))
 			}),
 			take: 9,
-			// unit stream handler fixes binary trampolining unfairness!?
+			// binary trampolining unfairness is fixed due to mplus not propagating delay upwards
 			//want: []expression{n5, n6, n5, n7, n5, n6, n5, n7, n5},
 			want: []expression{n5, n6, n7, n5, n6, n7, n5, n6, n7},
 		},
@@ -54,7 +54,7 @@ func TestKanren(t *testing.T) {
 				return disj_plus(fives(x), sixes(x), sevens(x))
 			}),
 			take: 9,
-			// unit stream handler fixes binary trampolining unfairness!?
+			// binary trampolining unfairness is fixed due to mplus not propagating delay upwards
 			//want: []expression{n5, n6, n5, n7, n5, n6, n5, n7, n5},
 			want: []expression{n5, n6, n7, n5, n6, n7, n5, n6, n7},
 		},
