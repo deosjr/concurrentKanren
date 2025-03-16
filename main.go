@@ -29,4 +29,10 @@ func main() {
 		)
 	}))
 	fmt.Println(len(out))
+    /*
+    out := run(callfresh(func(x expression) goal {
+        return equalo(x, number(5))
+    }))
+	fmt.Println(out)
+    */
 }

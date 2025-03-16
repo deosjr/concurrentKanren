@@ -91,24 +91,30 @@ func sendAndLink(parent, child stream, st state) {
 	*parent.out <- stateMsg{out: child.out, state: st, both: true}
 }
 
+type delayNode struct {
+    f func() goal
+}
+
 func delay(f func() goal) goal {
-	return func(st state) stream {
-		str := newStream()
-		go func() {
-			if !str.more() {
-				close(*str.out)
-				return
-			}
-			str.send(state{delayed: true})
-			if !str.more() {
-				close(*str.out)
-				return
-			}
-			str.request()
-			link(str, f()(st))
-		}()
-		return str
-	}
+    return delayNode{f}
+}
+
+func (n delayNode) apply(st state) stream {
+	str := newStream()
+	go func() {
+		if !str.more() {
+			close(*str.out)
+			return
+		}
+		str.send(state{delayed: true})
+		if !str.more() {
+			close(*str.out)
+			return
+		}
+		str.request()
+		link(str, n.f().apply(st))
+	}()
+	return str
 }
 
 func takeAll(str stream) []state {

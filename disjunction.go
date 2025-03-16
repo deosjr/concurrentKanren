@@ -1,19 +1,26 @@
 package main
 
-// tempted to use a buffered channel, but we want the buffer size dynamic (?)
+type disjConcNode struct {
+    goals []goal
+}
+
 func disj_conc(goals ...goal) goal {
-	return func(st state) stream {
+    return disjConcNode{goals}
+}
+
+// tempted to use a buffered channel, but we want the buffer size dynamic (?)
+func (n disjConcNode) apply(st state) stream {
 		str := newStream()
 		buffer := []state{}
 		streams := []stream{}
-		for _, g := range goals {
-			streams = append(streams, g(st))
+		for _, g := range n.goals {
+			streams = append(streams, g.apply(st))
 		}
 		refillBuffer := func() {
 			buffer = []state{}
 			active := []stream{}
 			for _, s := range streams {
-				s.request()
+                s.request()
 				x, ok := s.receive()
 				if !ok {
 					continue
@@ -52,5 +59,4 @@ func disj_conc(goals ...goal) goal {
 		}
 		go mplusplus()
 		return str
-	}
 }
