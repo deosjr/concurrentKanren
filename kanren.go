@@ -1,5 +1,7 @@
 package main
 
+import "sync"
+
 type goal interface {
     apply(state) stream
 }
@@ -8,11 +10,20 @@ type equaloNode struct {
     u, v expression
 }
 
+type eqKey struct { u, v expression }
+
+var mem sync.Map
+
 func equalo(u, v expression) goal {
-    return equaloNode{u, v}
+    if e, ok := mem.Load(eqKey{u, v}); ok {
+        return e.(*equaloNode)
+    }
+    n := &equaloNode{u, v}
+    mem.Store(eqKey{u, v}, n)
+    return n
 }
 
-func (n equaloNode) apply(st state) stream {
+func (n *equaloNode) apply(st state) stream {
 	str := newBoundedStream(1)
 	s, ok := st.sub.unify(n.u, n.v)
 	if ok {
