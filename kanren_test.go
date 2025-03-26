@@ -8,7 +8,7 @@ import (
 )
 
 func TestKanren(t *testing.T) {
-	n5, n6, n7 := number(5), number(6), number(7)
+	n5, n6, n7, n8 := number(5), number(6), number(7), number(8)
 	for i, tt := range []struct {
 		goal goal
 		take int
@@ -57,6 +57,14 @@ func TestKanren(t *testing.T) {
 			// binary trampolining unfairness is fixed due to mplus not propagating delay upwards
 			//want: []expression{n5, n6, n5, n7, n5, n6, n5, n7, n5},
 			want: []expression{n5, n6, n7, n5, n6, n7, n5, n6, n7},
+		},
+		{
+			goal: callfresh(func(x expression) goal {
+				return disj_plus(fives(x), sixes(x), sevens(x), eights(x))
+			}),
+			take: 9,
+			// binary trampolining unfairness only fixed up until a certain point
+			want: []expression{n5, n6, n7, n5, n8, n6, n5, n7, n8},
 		},
 		{
 			goal: callfresh(func(x expression) goal {

@@ -20,6 +20,10 @@ func sevens(x expression) goal {
 	return disj(equalo(x, number(7)), delay(func() goal { return sevens(x) }))
 }
 
+func eights(x expression) goal {
+	return disj(equalo(x, number(8)), delay(func() goal { return eights(x) }))
+}
+
 func main() {
 	// actual heavy goal to benchmark concurrency with
 	out := run(fresh3(func(q, x, y expression) goal {
