@@ -36,7 +36,7 @@ func (n *substitution) insert(k variable, v expression) (*substitution, bool) {
 	if n.key == k {
 		return n, false
 	}
-	if n.key < k {
+	if n.key > k {
 		left, inserted := n.left.insert(k, v)
 		if !inserted {
 			return n, false
@@ -45,7 +45,7 @@ func (n *substitution) insert(k variable, v expression) (*substitution, bool) {
 		newn.left = left
 		return newn.rebalance(), true
 	}
-	// n.key > k
+	// n.key < k
 	right, inserted := n.right.insert(k, v)
 	if !inserted {
 		return n, false
@@ -118,9 +118,9 @@ func (n *substitution) Lookup(k variable) (expression, bool) {
 		return nil, false
 	}
 	switch {
-	case n.key < k:
-		return n.left.Lookup(k)
 	case n.key > k:
+		return n.left.Lookup(k)
+	case n.key < k:
 		return n.right.Lookup(k)
 	}
 	// n.value == k
