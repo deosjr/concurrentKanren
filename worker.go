@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"sync"
 )
 
 // there are four types of work:
@@ -43,13 +44,15 @@ var (
 	forward   = map[stream]stream{}
 )
 
-func startWorkers() {
-	for i := 0; i < numWorkers; i++ {
-		go worker()
+func startWorkers() *sync.WaitGroup {
+	var wg sync.WaitGroup
+	for range numWorkers {
+		go worker(&wg)
 	}
-	for i := 0; i < numCoordinators; i++ {
+	for range numCoordinators {
 		go coordinate()
 	}
+	return &wg
 }
 
 func (w work) ctxdone() bool {
@@ -61,7 +64,7 @@ func (w work) ctxdone() bool {
 	}
 }
 
-func worker() {
+func worker(wg *sync.WaitGroup) {
 	for w := range workch {
 		if w.ctxdone() {
 			continue
@@ -75,6 +78,7 @@ func worker() {
 			w.receive(w.m)
 		}
 	}
+	wg.Done()
 }
 
 func coordinate() {
@@ -125,25 +129,25 @@ func getFwd(str stream) stream {
 	}
 }
 
-func wInit(ctx context.Context, f func()) work {
-	return work{ctx: ctx, init: f}
+func wInit(ctx context.Context, f func()) {
+	reqch <- work{ctx: ctx, init: f}
 }
 
-func wClose(str stream) work {
-	return work{str: str, closed: true}
+func wClose(str stream) {
+	reqch <- work{str: str, closed: true}
 }
 
-func wSend(ctx context.Context, str stream, st state, f func()) work {
-	return work{ctx: ctx, str: str, m: message{st: st, ok: true}, send: f}
+func wSend(ctx context.Context, str stream, st state, f func()) {
+	reqch <- work{ctx: ctx, str: str, m: message{st: st, ok: true}, send: f}
 }
 
-func wReceive(ctx context.Context, str stream, f func(message)) work {
-	return work{ctx: ctx, str: str, receive: f}
+func wReceive(ctx context.Context, str stream, f func(message)) {
+	reqch <- work{ctx: ctx, str: str, receive: f}
 }
 
 // forwarding closes a stream, so we have to only replace references one-way
-func wForward(from, to stream) work {
-	return work{str: from, fwd: to}
+func wForward(from, to stream) {
+	reqch <- work{str: from, fwd: to}
 }
 
 func coordinateClose(str stream) {
@@ -176,7 +180,7 @@ func coordinateSend(w work) {
 func coordinateReceive(w work) {
 	str := getFwd(w.str)
 	_, ok := closed[str]
-    if ok {
+	if ok {
 		w.m = message{ok: false}
 		workch <- w
 		return

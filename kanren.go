@@ -9,15 +9,15 @@ type goal func(context.Context, state) stream
 func equalo(u, v expression) goal {
 	return func(ctx context.Context, st state) stream {
 		str := newStream()
-		reqch <- wInit(ctx, func() {
+		wInit(ctx, func() {
 			s, ok := st.sub.unify(u, v)
 			if !ok {
-				reqch <- wClose(str)
+				wClose(str)
 				return
 			}
 			newst := state{sub: s, vc: st.vc}
-			reqch <- wSend(ctx, str, newst, func() {
-				reqch <- wClose(str)
+			wSend(ctx, str, newst, func() {
+				wClose(str)
 			})
 		})
 		return str
@@ -35,23 +35,23 @@ func callfresh(f func(x expression) goal) goal {
 func disj(g1, g2 goal) goal {
 	return func(ctx context.Context, st state) stream {
 		str := newStream()
-		reqch <- mplus(ctx, str, g1(ctx, st), g2(ctx, st))
+		mplus(ctx, str, g1(ctx, st), g2(ctx, st))
 		return str
 	}
 }
 
-func mplus(ctx context.Context, str, str1, str2 stream) work {
-	return wReceive(ctx, str1, func(m message) {
+func mplus(ctx context.Context, str, str1, str2 stream) {
+	wReceive(ctx, str1, func(m message) {
 		if !m.ok {
-			reqch <- wForward(str2, str)
+			wForward(str2, str)
 			return
 		}
 		if m.st.delayed != nil {
 			m.st.delayed()
-			reqch <- mplus(ctx, str, str2, str1)
+			mplus(ctx, str, str2, str1)
 		} else {
-			reqch <- wSend(ctx, str, m.st, func() {
-				reqch <- mplus(ctx, str, str2, str1)
+			wSend(ctx, str, m.st, func() {
+				mplus(ctx, str, str2, str1)
 			})
 		}
 	})
@@ -60,25 +60,25 @@ func mplus(ctx context.Context, str, str1, str2 stream) work {
 func conj(g1, g2 goal) goal {
 	return func(ctx context.Context, st state) stream {
 		str := newStream()
-		reqch <- bind(ctx, str, g1(ctx, st), g2)
+		bind(ctx, str, g1(ctx, st), g2)
 		return str
 	}
 }
 
-func bind(ctx context.Context, str, str1 stream, g goal) work {
-    return wReceive(ctx, str1, func(m message) {
-        if !m.ok {
-            reqch <- wClose(str)
-            return
-        }
-        if m.st.delayed != nil {
-            reqch <- bind(ctx, str, str1, g)
-            return
-        }
-        bstr := newStream()
-        reqch <- bind(ctx, bstr, str1, g)
-        reqch <- mplus(ctx, str, g(ctx, m.st), bstr)
-    })
+func bind(ctx context.Context, str, str1 stream, g goal) {
+	wReceive(ctx, str1, func(m message) {
+		if !m.ok {
+			wClose(str)
+			return
+		}
+		if m.st.delayed != nil {
+			bind(ctx, str, str1, g)
+			return
+		}
+		bstr := newStream()
+		bind(ctx, bstr, str1, g)
+		mplus(ctx, str, g(ctx, m.st), bstr)
+	})
 }
 
 func disj_plus(goals ...goal) goal {
