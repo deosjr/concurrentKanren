@@ -10,19 +10,29 @@ func disj_conc(goals ...goal) goal {
 			streams = append(streams, g(st))
 		}
 		refillBuffer := func() {
-			buffer = []state{}
 			active := []stream{}
 			for _, s := range streams {
-				s.request()
-				x, ok := s.receive()
+				str.request(s)
+				rec, ok := <-str.rec
 				if !ok {
-					continue
+					panic("disj_conc read on closed channel")
 				}
-				active = append(active, s)
-				if x.delayed {
+				switch {
+				case rec.isState():
+					buffer = append(buffer, rec.st)
+					active = append(active, s)
+				case rec.isStateAndClose():
+					buffer = append(buffer, rec.st)
+				case rec.isClose():
 					continue
+				case rec.isForward():
+					active = append(active, rec.fwd)
+				case rec.isForwardWithState():
+					buffer = append(buffer, rec.st)
+					active = append(active, rec.fwd)
+				case rec.isDelay():
+					active = append(active, s)
 				}
-				buffer = append(buffer, x)
 			}
 			streams = active
 		}
@@ -31,21 +41,23 @@ func disj_conc(goals ...goal) goal {
 			for len(buffer) == 0 && len(streams) > 0 {
 				refillBuffer()
 			}
-			if !str.more() {
+			req := <-str.req
+			if req.done {
 				for _, s := range streams {
-					*s.in <- reqMsg{done: true}
+					sendDone(s.req)
 				}
-				close(*str.out)
+				str.close()
 				return
 			}
 			if len(buffer) > 0 {
-				str.send(buffer[0])
+				sendState(req.onto, buffer[0])
 				buffer = buffer[1:]
 				mplusplus()
 				return
 			}
 			if len(streams) == 0 {
-				close(*str.out)
+				sendClose(req.onto)
+				str.close()
 				return
 			}
 			panic("should never happen: productive streams remain but we didn't find anything to return?")

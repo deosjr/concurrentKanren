@@ -77,7 +77,7 @@ func fullAdderO(b, x, y, r, c expression) goal {
 
 func adderO(d, n, m, r expression) goal {
 	return delay(func() goal {
-		return disj_plus(
+		return disj_conc(
 			conj_plus(equalo(n0, d), equalo(emptylist, m), equalo(n, r)),
 			conj_plus(equalo(n0, d), equalo(emptylist, n), equalo(m, r), posO(m)),
 			conj_plus(equalo(n1, d), equalo(emptylist, m), adderO(n0, n, p1, r)),
