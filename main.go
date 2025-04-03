@@ -25,6 +25,12 @@ func eights(x expression) goal {
 }
 
 func main() {
+	/*
+		out := run(fresh1(func(x expression) goal {
+			return disj(equalo(x, number(5)), equalo(x, number(6)))
+		}))
+		fmt.Println(out)
+	*/
 	// actual heavy goal to benchmark concurrency with
 	out := run(fresh3(func(q, x, y expression) goal {
 		return conj(

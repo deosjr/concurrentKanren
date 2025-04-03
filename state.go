@@ -1,9 +1,8 @@
 package main
 
 type state struct {
-	sub     *substitution
-	vc      int
-	delayed bool // signals an immature stream if true
+	sub *substitution
+	vc  int
 }
 
 var emptystate = state{sub: nil, vc: 0}

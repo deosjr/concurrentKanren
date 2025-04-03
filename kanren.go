@@ -4,12 +4,21 @@ type goal func(state) stream
 
 func equalo(u, v expression) goal {
 	return func(st state) stream {
-		str := newBoundedStream(1)
-		s, ok := st.sub.unify(u, v)
-		if ok {
-			str.send(state{sub: s, vc: st.vc})
-		}
-		close(*str.out)
+		str := newStream()
+		go func() {
+			s, ok := st.sub.unify(u, v)
+			req := <-str.req
+			if req.done {
+				str.close()
+				return
+			}
+			if ok {
+				sendStateAndClose(req.onto, state{sub: s, vc: st.vc})
+			} else {
+				sendClose(req.onto)
+			}
+			str.close()
+		}()
 		return str
 	}
 }
@@ -25,96 +34,93 @@ func callfresh(f func(x expression) goal) goal {
 func disj(g1, g2 goal) goal {
 	return func(st state) stream {
 		str := newStream()
-		go func() {
-			mplus(str, g1(st), g2(st))
-
-		}()
+		go mplus(str, g1(st), g2(st))
 		return str
 	}
 }
 
 func mplus(str, str1, str2 stream) {
-	if str1.bounded() {
-		if !str.more() {
-			*str2.in <- reqMsg{done: true}
-			close(*str.out)
-			return
-		}
-		st, ok := str1.receive()
-		if !ok {
-			str.request()
-			link(str, str2)
-		} else {
-			sendAndLink(str, str2, st)
-		}
+	req := <-str.req
+	if req.done {
+		sendDone(str1.req)
+		sendDone(str2.req)
+		str.close()
 		return
 	}
-	if !str.more() {
-		*str1.in <- reqMsg{done: true}
-		*str2.in <- reqMsg{done: true}
-		close(*str.out)
-		return
-	}
-	str1.request()
-	st, ok := str1.receive()
+	mplus_(req.onto, str, str1, str2)
+}
+
+func mplus_(req chan stateMsg, str, str1, str2 stream) {
+	str.request(str1)
+	rec, ok := <-str.rec
 	if !ok {
-		str.request()
-		link(str, str2)
-		return
+		panic("mplus tried to read from closed channel")
 	}
-	if st.delayed {
-		str.request()
-	} else {
-		str.send(st)
+	switch {
+	case rec.isState():
+		sendState(req, rec.st)
+		mplus(str, str2, str1)
+	case rec.isStateAndClose():
+		sendForwardWithState(req, str2, rec.st)
+		str.close()
+	case rec.isClose():
+		sendForward(req, str2)
+		str.close()
+	case rec.isForward():
+		mplus_(req, str, rec.fwd, str2)
+	case rec.isForwardWithState():
+		sendState(req, rec.st)
+		mplus(str, str2, rec.fwd)
+	case rec.isDelay():
+		mplus_(req, str, str2, str1)
 	}
-	mplus(str, str2, str1)
 }
 
 func conj(g1, g2 goal) goal {
 	return func(st state) stream {
 		str := newStream()
-		go func() {
-			bind(str, g1(st), g2)
-		}()
+		go bind(str, g1(st), g2)
 		return str
 	}
 }
 
 func bind(str, str1 stream, g goal) {
-	if str1.bounded() {
-		if !str.more() {
-			close(*str.out)
-			return
-		}
-		st, ok := str1.receive()
-		if !ok {
-			close(*str.out)
-			return
-		}
-		str.request()
-		link(str, g(st))
+	req := <-str.req
+	if req.done {
+		sendDone(str1.req)
+		str.close()
 		return
 	}
-	str1.request()
-	if !str.more() {
-		*str1.in <- reqMsg{done: true}
-		close(*str.out)
-	}
-	st, ok := str1.receive()
+	bind_(req.onto, str, str1, g)
+}
+
+func bind_(req chan stateMsg, str, str1 stream, g goal) {
+	str.request(str1)
+	rec, ok := <-str.rec
 	if !ok {
-		close(*str.out)
-		return
+		panic("bind tried to read from closed channel")
 	}
-	str.request()
-	if st.delayed {
-		bind(str, str1, g)
-		return
+	switch {
+	case rec.isState():
+		bstr := newStream()
+		go bind(bstr, str1, g)
+		mplus(str, g(rec.st), bstr)
+	case rec.isStateAndClose():
+		s := g(rec.st)
+		sendForward(req, s)
+		str.close()
+	case rec.isClose():
+		sendClose(req)
+		str.close()
+	case rec.isForward():
+		bind_(req, str, rec.fwd, g)
+	case rec.isForwardWithState():
+		bstr := newStream()
+		go bind(bstr, rec.fwd, g)
+		mplus_(req, str, g(rec.st), bstr)
+	case rec.isDelay():
+		bind_(req, str, str1, g)
 	}
-	bstr := newStream()
-	go func() {
-		bind(bstr, str1, g)
-	}()
-	mplus(str, g(st), bstr)
 }
 
 func disj_plus(goals ...goal) goal {

@@ -1,111 +1,112 @@
 package main
 
+// a stream is smth you can request an answer from by
+// sending it the return channel, or close it by sending done
+// goal go func that maintains the stream closes the stream
+// note we are not using channel close to signal end of stream;
+// that takes another request/inspection which causes complexity
 type stream struct {
-	in  *chan reqMsg
-	out *chan stateMsg
+	req chan reqMsg
+	rec chan stateMsg
 }
 
 type stateMsg struct {
-	state state
-	out   *chan stateMsg
-	both  bool
+	st      state
+	fwd     stream
+	ok      bool
+	delayed bool
+	done    bool
 }
 
 type reqMsg struct {
+	onto chan stateMsg
 	done bool
-	in   *chan reqMsg
 }
 
 func newStream() stream {
-	in := make(chan reqMsg, 1)
-	out := make(chan stateMsg)
-	return stream{
-		in:  &in,
-		out: &out,
-	}
+	req := make(chan reqMsg, 1)
+	rec := make(chan stateMsg)
+	return stream{req, rec}
 }
 
-func newBoundedStream(size int) stream {
-	out := make(chan stateMsg, size)
-	return stream{out: &out}
+func (s stream) close() {
+	close(s.req)
+	close(s.rec)
 }
 
-func (s stream) bounded() bool {
-	return cap(*s.out) != 0
+func (sender stream) request(s stream) {
+	s.req <- reqMsg{onto: sender.rec}
 }
 
-func (s stream) request() {
-	if s.bounded() {
-		return
-	}
-	*s.in <- reqMsg{done: false}
+func sendDone(ch chan reqMsg) {
+	ch <- reqMsg{done: true}
 }
 
-func (s stream) more() bool {
-	if s.bounded() {
-		return len(*s.out) > 0
-	}
-	req := <-*s.in
-	if req.done {
-		return false
-	}
-	if req.in != nil {
-		old := *s.in
-		*s.in = *req.in
-		close(old)
-		return s.more()
-	}
-	return true
+func sendState(ch chan stateMsg, st state) {
+	ch <- stateMsg{st: st, ok: true}
 }
 
-func (s stream) send(st state) {
-	*s.out <- stateMsg{state: st}
+func sendStateAndClose(ch chan stateMsg, st state) {
+	ch <- stateMsg{st: st, ok: true, done: true}
 }
 
-func (s stream) receive() (state, bool) {
-	msg, ok := <-*s.out
-	if ok && msg.out != nil {
-		old := *s.out
-		*s.out = *msg.out
-		close(old)
-		if msg.both {
-			return msg.state, ok
-		}
-		return s.receive()
-	}
-	return msg.state, ok
+func sendClose(ch chan stateMsg) {
+	ch <- stateMsg{done: true}
 }
 
-// link two streams
-func link(parent, child stream) {
-	if !child.bounded() {
-		*child.in <- reqMsg{in: parent.in}
-	}
-	*parent.out <- stateMsg{out: child.out}
+func sendDelay(ch chan stateMsg) {
+	ch <- stateMsg{delayed: true}
 }
 
-func sendAndLink(parent, child stream, st state) {
-	if !child.bounded() {
-		*child.in <- reqMsg{in: parent.in}
-	}
-	*parent.out <- stateMsg{out: child.out, state: st, both: true}
+func sendForward(ch chan stateMsg, fwd stream) {
+	ch <- stateMsg{fwd: fwd}
+}
+
+func sendForwardWithState(ch chan stateMsg, fwd stream, st state) {
+	ch <- stateMsg{fwd: fwd, st: st, ok: true}
+}
+
+func (m stateMsg) isState() bool {
+	return m.ok && !m.done && m.fwd.req == nil
+}
+
+func (m stateMsg) isStateAndClose() bool {
+	return m.ok && m.done
+}
+
+func (m stateMsg) isClose() bool {
+	return !m.ok && m.done
+}
+
+func (m stateMsg) isDelay() bool {
+	return m.delayed
+}
+
+func (m stateMsg) isForward() bool {
+	return m.fwd.req != nil && !m.ok
+}
+
+func (m stateMsg) isForwardWithState() bool {
+	return m.fwd.req != nil && m.ok
 }
 
 func delay(f func() goal) goal {
 	return func(st state) stream {
 		str := newStream()
 		go func() {
-			if !str.more() {
-				close(*str.out)
+			req := <-str.req
+			if req.done {
+				str.close()
 				return
 			}
-			str.send(state{delayed: true})
-			if !str.more() {
-				close(*str.out)
+			sendDelay(req.onto)
+			req = <-str.req
+			if req.done {
+				str.close()
 				return
 			}
-			str.request()
-			link(str, f()(st))
+			sendForward(req.onto, f()(st))
+			str.close()
 		}()
 		return str
 	}
@@ -113,37 +114,56 @@ func delay(f func() goal) goal {
 
 func takeAll(str stream) []state {
 	states := []state{}
+	out := newStream()
 	for {
-		str.request()
-		st, ok := str.receive()
+		out.request(str)
+		rec, ok := <-out.rec
 		if !ok {
-			break
+			panic("takeAll read on closed channel")
 		}
-		if st.delayed {
+		switch {
+		case rec.isState():
+			states = append(states, rec.st)
+		case rec.isStateAndClose():
+			return append(states, rec.st)
+		case rec.isClose():
+			return states
+		case rec.isForward():
+			str = rec.fwd
+		case rec.isForwardWithState():
+			states = append(states, rec.st)
+			str = rec.fwd
+		case rec.isDelay():
 			continue
 		}
-		states = append(states, st)
 	}
-	return states
 }
 
 func takeN(n int, str stream) []state {
 	states := []state{}
-	i := 0
-	for i < n {
-		str.request()
-		st, ok := str.receive()
+	out := newStream()
+	for len(states) < n {
+		out.request(str)
+		rec, ok := <-out.rec
 		if !ok {
-			return states
+			panic("takeN read on closed channel")
 		}
-		if st.delayed {
+		switch {
+		case rec.isState():
+			states = append(states, rec.st)
+		case rec.isStateAndClose():
+			return append(states, rec.st)
+		case rec.isClose():
+			return states
+		case rec.isForward():
+			str = rec.fwd
+		case rec.isForwardWithState():
+			states = append(states, rec.st)
+			str = rec.fwd
+		case rec.isDelay():
 			continue
 		}
-		states = append(states, st)
-		i++
 	}
-	if !str.bounded() {
-		*str.in <- reqMsg{done: true}
-	}
+	sendDone(str.req)
 	return states
 }
