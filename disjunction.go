@@ -36,9 +36,7 @@ func mplusplus(str stream, buffer []state, streams []stream) {
 	str.close()
 }
 
-func refillBuffer(str stream, streams []stream) ([]state, []stream) {
-	buffer := []state{}
-	active := []stream{}
+func refillBuffer(str stream, streams []stream) (buffer []state, active []stream) {
 	for _, s := range streams {
 		str.request(s)
 		rec, ok := <-str.rec

@@ -63,7 +63,7 @@ func gt1O(n expression) goal {
 }
 
 func fullAdderO(b, x, y, r, c expression) goal {
-	return disj_plus(
+	return disj_conc(
 		equalo(list(b, x, y, r, c), list(n0, n0, n0, n0, n0)),
 		equalo(list(b, x, y, r, c), list(n1, n0, n0, n1, n0)),
 		equalo(list(b, x, y, r, c), list(n0, n1, n0, n1, n0)),

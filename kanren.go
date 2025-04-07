@@ -104,7 +104,7 @@ func bind_(req chan stateMsg, str, str1 stream, g goal) {
 	case rec.isState():
 		bstr := newStream()
 		go bind(bstr, str1, g)
-		mplus(str, g(rec.st), bstr)
+		mplus_(req, str, g(rec.st), bstr)
 	case rec.isStateAndClose():
 		s := g(rec.st)
 		sendForward(req, s)
