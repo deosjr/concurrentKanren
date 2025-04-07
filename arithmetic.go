@@ -64,14 +64,14 @@ func gt1O(n expression) goal {
 
 func fullAdderO(b, x, y, r, c expression) goal {
 	return disj_plus(
-		conj_plus(equalo(n0, b), equalo(n0, x), equalo(n0, y), equalo(n0, r), equalo(n0, c)),
-		conj_plus(equalo(n1, b), equalo(n0, x), equalo(n0, y), equalo(n1, r), equalo(n0, c)),
-		conj_plus(equalo(n0, b), equalo(n1, x), equalo(n0, y), equalo(n1, r), equalo(n0, c)),
-		conj_plus(equalo(n1, b), equalo(n1, x), equalo(n0, y), equalo(n0, r), equalo(n1, c)),
-		conj_plus(equalo(n0, b), equalo(n0, x), equalo(n1, y), equalo(n1, r), equalo(n0, c)),
-		conj_plus(equalo(n1, b), equalo(n0, x), equalo(n1, y), equalo(n0, r), equalo(n1, c)),
-		conj_plus(equalo(n0, b), equalo(n1, x), equalo(n1, y), equalo(n0, r), equalo(n1, c)),
-		conj_plus(equalo(n1, b), equalo(n1, x), equalo(n1, y), equalo(n1, r), equalo(n1, c)),
+		equalo(list(b, x, y, r, c), list(n0, n0, n0, n0, n0)),
+		equalo(list(b, x, y, r, c), list(n1, n0, n0, n1, n0)),
+		equalo(list(b, x, y, r, c), list(n0, n1, n0, n1, n0)),
+		equalo(list(b, x, y, r, c), list(n1, n1, n0, n0, n1)),
+		equalo(list(b, x, y, r, c), list(n0, n0, n1, n1, n0)),
+		equalo(list(b, x, y, r, c), list(n1, n0, n1, n0, n1)),
+		equalo(list(b, x, y, r, c), list(n0, n1, n1, n0, n1)),
+		equalo(list(b, x, y, r, c), list(n1, n1, n1, n1, n1)),
 	)
 }
 
