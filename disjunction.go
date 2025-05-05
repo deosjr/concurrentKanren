@@ -1,5 +1,6 @@
 package main
 
+/*
 func disj_conc(goals ...goal) goal {
 	return func(st state) stream {
 		str := newStream()
@@ -68,3 +69,4 @@ func refillBuffer(str stream, streams []stream) (buffer []state, active []stream
 	}
 	return buffer, active
 }
+*/

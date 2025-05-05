@@ -1,36 +1,46 @@
 package main
 
-type goal func(state) stream
+type goal interface {
+	Init(str stream, st state)
+}
+
+type equaloGoal struct {
+	u, v expression
+}
 
 func equalo(u, v expression) goal {
-	return func(st state) stream {
-		str := newStream()
-		go func() {
-			s, ok := st.sub.unify(u, v)
-			req := <-str.req
-			if req.done {
-				str.close()
-				return
-			}
-			if ok {
-				sendStateAndClose(req.onto, state{sub: s, vc: st.vc})
-			} else {
-				sendClose(req.onto)
-			}
-			str.close()
-		}()
-		return str
-	}
+	return equaloGoal{u: u, v: v}
+}
+
+func (e equaloGoal) Init(str stream, st state) {
+	s, ok := st.sub.unify(e.u, e.v)
+	registerRequest(str, func(sender stream, done bool) {
+		if done {
+			return
+		}
+		if ok {
+			sendStateAndClose(str, sender, state{sub: s, vc: st.vc})
+		} else {
+			sendClose(str, sender)
+		}
+	})
+}
+
+type callfreshGoal struct {
+	f func(expression) goal
 }
 
 func callfresh(f func(x expression) goal) goal {
-	return func(st state) stream {
-		v := variable(st.vc)
-		newstate := state{sub: st.sub, vc: st.vc + 1}
-		return f(v)(newstate)
-	}
+	return callfreshGoal{f}
 }
 
+func (cf callfreshGoal) Init(str stream, st state) {
+	v := variable(st.vc)
+	newstate := state{sub: st.sub, vc: st.vc + 1}
+	cf.f(v).Init(str, newstate)
+}
+
+/*
 func disj(g1, g2 goal) goal {
 	return func(st state) stream {
 		str := newStream()
@@ -136,16 +146,24 @@ func conj_plus(goals ...goal) goal {
 	}
 	return conj(goals[0], conj_plus(goals[1:]...))
 }
+*/
 
 func run(goals ...goal) []expression {
-	g := conj_plus(goals...)
-	out := mKreify(takeAll(g(emptystate)))
+	//g := conj_plus(goals...)
+	g := goals[0]
+	stream := registerInit(g, emptystate)
+	wg := startWorkers()
+	out := mKreify(takeAll(stream))
+	awaitWorkers(wg)
 	return out
 }
 
 func runN(n int, goals ...goal) []expression {
-	g := conj_plus(goals...)
-	out := mKreify(takeN(n, g(emptystate)))
+	wg := startWorkers()
+	//g := conj_plus(goals...)
+	g := goals[0]
+	out := mKreify(takeN(n, registerInit(g, emptystate)))
+	awaitWorkers(wg)
 	return out
 }
 
@@ -160,6 +178,7 @@ func mKreify(states []state) []expression {
 // missing macros here. go:generate could be used perhaps
 // for now we duplicate the implementation of callfresh
 
+/*
 func fresh1(f func(expression) goal) goal {
 	return func(st state) stream {
 		x := variable(st.vc)
@@ -200,3 +219,4 @@ func fresh7(f func(expression, expression, expression, expression, expression, e
 		return f(x1, x2, x3, x4, x5, x6, x7)(newstate)
 	}
 }
+*/

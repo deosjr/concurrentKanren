@@ -8,7 +8,8 @@ import (
 )
 
 func TestKanren(t *testing.T) {
-	n5, n6, n7, n8 := number(5), number(6), number(7), number(8)
+	//n5, n6, n7, n8 := number(5), number(6), number(7), number(8)
+	n5 := number(5)
 	for i, tt := range []struct {
 		goal goal
 		take int
@@ -20,100 +21,101 @@ func TestKanren(t *testing.T) {
 			}),
 			want: []expression{n5},
 		},
-		{
-			goal: callfresh(func(q expression) goal {
-				return equalo(q, n5)
-			}),
-			take: 3,
-			want: []expression{n5},
-		},
-		{
-			goal: callfresh(func(q expression) goal {
-				return disj(equalo(q, n5), equalo(q, n6))
-			}),
-			want: []expression{n5, n6},
-		},
-		{
-			goal: callfresh(func(x expression) goal {
-				return fives(x)
-			}),
-			take: 3,
-			want: []expression{n5, n5, n5},
-		},
-		{
-			goal: callfresh(func(x expression) goal {
-				return disj(fives(x), disj(sixes(x), sevens(x)))
-			}),
-			take: 9,
-			// binary trampolining unfairness is fixed due to mplus not propagating delay upwards
-			//want: []expression{n5, n6, n5, n7, n5, n6, n5, n7, n5},
-			want: []expression{n5, n6, n7, n5, n6, n7, n5, n6, n7},
-		},
-		{
-			goal: callfresh(func(x expression) goal {
-				return disj_plus(fives(x), sixes(x), sevens(x))
-			}),
-			take: 9,
-			// binary trampolining unfairness is fixed due to mplus not propagating delay upwards
-			//want: []expression{n5, n6, n5, n7, n5, n6, n5, n7, n5},
-			want: []expression{n5, n6, n7, n5, n6, n7, n5, n6, n7},
-		},
-		{
-			goal: callfresh(func(x expression) goal {
-				return disj_plus(fives(x), sixes(x), sevens(x), eights(x))
-			}),
-			take: 9,
-			// binary trampolining unfairness only fixed up until a certain point
-			want: []expression{n5, n6, n7, n5, n8, n6, n5, n7, n8},
-		},
-		{
-			goal: callfresh(func(x expression) goal {
-				return disj_conc(fives(x), sixes(x), sevens(x))
-			}),
-			take: 9,
-			want: []expression{n5, n6, n7, n5, n6, n7, n5, n6, n7},
-		},
-		{
-			goal: callfresh(func(x expression) goal {
-				return disj_conc(nevero(), fives(x), sixes(x), sevens(x))
-			}),
-			take: 9,
-			want: []expression{n5, n6, n7, n5, n6, n7, n5, n6, n7},
-		},
-		{
-			goal: fresh2(func(x, y expression) goal {
-				return conj(equalo(x, n5), equalo(y, n6))
-			}),
-			want: []expression{n5},
-		},
-		{
-			goal: fresh3(func(q, x, y expression) goal {
-				return conj(
-					equalo(q, pair{x, y}),
-					conj(equalo(x, n5), equalo(y, n6)),
-				)
-			}),
-			want: []expression{pair{n5, n6}},
-		},
-		{
-			goal: equalo(n5, n6),
-			want: []expression{},
-		},
 		/*
 			{
-				goal: conj_sce(equalo(n5, n6), nevero()),
-				want: []expression{},
+				goal: callfresh(func(q expression) goal {
+					return equalo(q, n5)
+				}),
+				take: 3,
+				want: []expression{n5},
 			},
 			{
-				goal: conj_sce(nevero(), equalo(n5, n6)),
-				want: []expression{},
+				goal: callfresh(func(q expression) goal {
+					return disj(equalo(q, n5), equalo(q, n6))
+				}),
+				want: []expression{n5, n6},
+			},
+			{
+				goal: callfresh(func(x expression) goal {
+					return fives(x)
+				}),
+				take: 3,
+				want: []expression{n5, n5, n5},
+			},
+			{
+				goal: callfresh(func(x expression) goal {
+					return disj(fives(x), disj(sixes(x), sevens(x)))
+				}),
+				take: 9,
+				// binary trampolining unfairness is fixed due to mplus not propagating delay upwards
+				//want: []expression{n5, n6, n5, n7, n5, n6, n5, n7, n5},
+				want: []expression{n5, n6, n7, n5, n6, n7, n5, n6, n7},
+			},
+			{
+				goal: callfresh(func(x expression) goal {
+					return disj_plus(fives(x), sixes(x), sevens(x))
+				}),
+				take: 9,
+				// binary trampolining unfairness is fixed due to mplus not propagating delay upwards
+				//want: []expression{n5, n6, n5, n7, n5, n6, n5, n7, n5},
+				want: []expression{n5, n6, n7, n5, n6, n7, n5, n6, n7},
+			},
+			{
+				goal: callfresh(func(x expression) goal {
+					return disj_plus(fives(x), sixes(x), sevens(x), eights(x))
+				}),
+				take: 9,
+				// binary trampolining unfairness only fixed up until a certain point
+				want: []expression{n5, n6, n7, n5, n8, n6, n5, n7, n8},
+			},
+			{
+				goal: callfresh(func(x expression) goal {
+					return disj_conc(fives(x), sixes(x), sevens(x))
+				}),
+				take: 9,
+				want: []expression{n5, n6, n7, n5, n6, n7, n5, n6, n7},
+			},
+			{
+				goal: callfresh(func(x expression) goal {
+					return disj_conc(nevero(), fives(x), sixes(x), sevens(x))
+				}),
+				take: 9,
+				want: []expression{n5, n6, n7, n5, n6, n7, n5, n6, n7},
 			},
 			{
 				goal: fresh2(func(x, y expression) goal {
-					return conj_sce(equalo(y, n5), equalo(x, y))
+					return conj(equalo(x, n5), equalo(y, n6))
 				}),
 				want: []expression{n5},
 			},
+			{
+				goal: fresh3(func(q, x, y expression) goal {
+					return conj(
+						equalo(q, pair{x, y}),
+						conj(equalo(x, n5), equalo(y, n6)),
+					)
+				}),
+				want: []expression{pair{n5, n6}},
+			},
+			{
+				goal: equalo(n5, n6),
+				want: []expression{},
+			},
+			/*
+				{
+					goal: conj_sce(equalo(n5, n6), nevero()),
+					want: []expression{},
+				},
+				{
+					goal: conj_sce(nevero(), equalo(n5, n6)),
+					want: []expression{},
+				},
+				{
+					goal: fresh2(func(x, y expression) goal {
+						return conj_sce(equalo(y, n5), equalo(x, y))
+					}),
+					want: []expression{n5},
+				},
 		*/
 		{
 			goal: callfresh(func(x expression) goal {

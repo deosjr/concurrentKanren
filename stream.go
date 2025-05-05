@@ -1,55 +1,71 @@
 package main
 
-// a stream is smth you can request an answer from by
-// sending it the return channel, or close it by sending done
-// goal go func that maintains the stream closes the stream
-// note we are not using channel close to signal end of stream;
-// that takes another request/inspection which causes complexity
-type stream struct {
-	req chan reqMsg
-	rec chan stateMsg
-}
+import (
+	"sync/atomic"
+)
 
-type stateMsg struct {
-	st      state
-	fwd     stream
-	ok      bool
-	delayed bool
-	done    bool
-}
+var streamcounter atomic.Int64
 
-type reqMsg struct {
-	onto chan stateMsg
-	done bool
-}
+// a stream is a coroutine ID, yielding messages
+// a stream is guaranteed to have a single requesting parent
+// and will always send a message back upon request
+type stream int64
 
 func newStream() stream {
-	req := make(chan reqMsg, 1)
-	rec := make(chan stateMsg)
-	return stream{req, rec}
+	return stream(streamcounter.Add(1))
 }
 
-func (s stream) close() {
-	close(s.req)
-	close(s.rec)
+type reqFn func(sender stream, done bool)
+
+type receiveFn func(msg Message)
+
+type Message interface {
+	Done() bool
+	Sender() stream
 }
 
-func (sender stream) request(s stream) {
-	s.req <- reqMsg{onto: sender.rec}
+type message struct {
+	sender stream
 }
 
-func sendDone(ch chan reqMsg) {
-	ch <- reqMsg{done: true}
+func (m message) Done() bool {
+	return false
 }
 
-func sendState(ch chan stateMsg, st state) {
-	ch <- stateMsg{st: st, ok: true}
+func (m message) Sender() stream {
+	return m.sender
 }
 
-func sendStateAndClose(ch chan stateMsg, st state) {
-	ch <- stateMsg{st: st, ok: true, done: true}
+type stateMessage struct {
+	message
+	st state
 }
 
+func sendState(sender, receiver stream, st state) {
+	m := stateMessage{message: message{sender}, st: st}
+	send(receiver, m)
+}
+
+type stateCloseMessage struct {
+	message
+	st state
+}
+
+func sendStateAndClose(sender, receiver stream, st state) {
+	m := stateCloseMessage{message: message{sender}, st: st}
+	send(receiver, m)
+}
+
+type closeMessage struct {
+	message
+}
+
+func sendClose(sender, receiver stream) {
+	m := closeMessage{message: message{sender}}
+	send(receiver, m)
+}
+
+/*
 func sendClose(ch chan stateMsg) {
 	ch <- stateMsg{done: true}
 }
@@ -89,7 +105,9 @@ func (m stateMsg) isForward() bool {
 func (m stateMsg) isForwardWithState() bool {
 	return m.fwd.req != nil && m.ok
 }
+*/
 
+/*
 func delay(f func() goal) goal {
 	return func(st state) stream {
 		str := newStream()
@@ -111,59 +129,61 @@ func delay(f func() goal) goal {
 		return str
 	}
 }
+*/
 
 func takeAll(str stream) []state {
 	states := []state{}
 	out := newStream()
-	for {
-		out.request(str)
-		rec, ok := <-out.rec
-		if !ok {
-			panic("takeAll read on closed channel")
+	done := make(chan bool)
+	var takeFn receiveFn
+	takeFn = func(msg Message) {
+		switch t := msg.(type) {
+		case stateMessage:
+			states = append(states, t.st)
+		case stateCloseMessage:
+			states = append(states, t.st)
+			done <- true
+			return
+		case closeMessage:
+			done <- true
+			return
 		}
-		switch {
-		case rec.isState():
-			states = append(states, rec.st)
-		case rec.isStateAndClose():
-			return append(states, rec.st)
-		case rec.isClose():
-			return states
-		case rec.isForward():
-			str = rec.fwd
-		case rec.isForwardWithState():
-			states = append(states, rec.st)
-			str = rec.fwd
-		case rec.isDelay():
-			continue
-		}
+		request(out, str, false)
+		registerReceive(out, takeFn)
 	}
+	request(out, str, false)
+	registerReceive(out, takeFn)
+	<-done
+	return states
 }
 
 func takeN(n int, str stream) []state {
 	states := []state{}
-	out := newStream()
-	for len(states) < n {
-		out.request(str)
-		rec, ok := <-out.rec
-		if !ok {
-			panic("takeN read on closed channel")
+	/*
+		out := newStream()
+		for len(states) < n {
+			out.request(str)
+			rec, ok := <-out.rec
+			if !ok {
+				panic("takeN read on closed channel")
+			}
+			switch {
+			case rec.isState():
+				states = append(states, rec.st)
+			case rec.isStateAndClose():
+				return append(states, rec.st)
+			case rec.isClose():
+				return states
+			case rec.isForward():
+				str = rec.fwd
+			case rec.isForwardWithState():
+				states = append(states, rec.st)
+				str = rec.fwd
+			case rec.isDelay():
+				continue
+			}
 		}
-		switch {
-		case rec.isState():
-			states = append(states, rec.st)
-		case rec.isStateAndClose():
-			return append(states, rec.st)
-		case rec.isClose():
-			return states
-		case rec.isForward():
-			str = rec.fwd
-		case rec.isForwardWithState():
-			states = append(states, rec.st)
-			str = rec.fwd
-		case rec.isDelay():
-			continue
-		}
-	}
-	sendDone(str.req)
+		sendDone(str.req)
+	*/
 	return states
 }

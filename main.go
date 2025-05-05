@@ -1,9 +1,8 @@
 package main
 
-import (
-	"fmt"
-)
+import "fmt"
 
+/*
 func nevero() goal {
 	return delay(func() goal { return nevero() })
 }
@@ -23,8 +22,13 @@ func sevens(x expression) goal {
 func eights(x expression) goal {
 	return disj(equalo(x, number(8)), delay(func() goal { return eights(x) }))
 }
+*/
 
 func main() {
+	out := run(callfresh(func(x expression) goal {
+		return equalo(x, number(5))
+	}))
+	fmt.Println(out)
 	/*
 		out := run(fresh1(func(x expression) goal {
 			return disj(equalo(x, number(5)), equalo(x, number(6)))
@@ -32,11 +36,13 @@ func main() {
 		fmt.Println(out)
 	*/
 	// actual heavy goal to benchmark concurrency with
-	out := run(fresh3(func(q, x, y expression) goal {
-		return conj(
-			equalo(q, list(x, y)),
-			plusO(x, y, buildNum(10000)),
-		)
-	}))
-	fmt.Println(len(out))
+	/*
+		out := run(fresh3(func(q, x, y expression) goal {
+			return conj(
+				equalo(q, list(x, y)),
+				plusO(x, y, buildNum(10000)),
+			)
+		}))
+		fmt.Println(len(out))
+	*/
 }
