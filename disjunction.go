@@ -1,5 +1,7 @@
 package main
 
+/*
+
 // tempted to use a buffered channel, but we want the buffer size dynamic (?)
 func disj_conc(goals ...goal) goal {
 	return func(st state) stream {
@@ -54,3 +56,4 @@ func disj_conc(goals ...goal) goal {
 		return str
 	}
 }
+*/

@@ -1,8 +1,6 @@
 package main
 
-import (
-	"fmt"
-)
+import "fmt"
 
 func nevero() goal {
 	return delay(func() goal { return nevero() })

@@ -4,13 +4,11 @@ type goal func(state) stream
 
 func equalo(u, v expression) goal {
 	return func(st state) stream {
-		str := newBoundedStream(1)
 		s, ok := st.sub.unify(u, v)
 		if ok {
-			str.send(state{sub: s, vc: st.vc})
+			return stream{state{sub: s, vc: st.vc}}
 		}
-		close(*str.out)
-		return str
+		return nil
 	}
 }
 
@@ -24,97 +22,44 @@ func callfresh(f func(x expression) goal) goal {
 
 func disj(g1, g2 goal) goal {
 	return func(st state) stream {
-		str := newStream()
-		go func() {
-			mplus(str, g1(st), g2(st))
-
-		}()
-		return str
+		return mplus(g1(st), g2(st))
 	}
 }
 
-func mplus(str, str1, str2 stream) {
-	if str1.bounded() {
-		if !str.more() {
-			*str2.in <- reqMsg{done: true}
-			close(*str.out)
-			return
-		}
-		st, ok := str1.receive()
-		if !ok {
-			str.request()
-			link(str, str2)
-		} else {
-			sendAndLink(str, str2, st)
-		}
-		return
+func mplus(str1, str2 stream) stream {
+	if len(str1) == 0 {
+		return str2
 	}
-	if !str.more() {
-		*str1.in <- reqMsg{done: true}
-		*str2.in <- reqMsg{done: true}
-		close(*str.out)
-		return
+	st := str1[0]
+	rem1 := str1[1:]
+	if st.delayed != nil {
+		return stream{state{delayed: func() stream {
+			s1 := append(st.delayed(), rem1...)
+			return mplus(str2, s1)
+		}}}
 	}
-	str1.request()
-	st, ok := str1.receive()
-	if !ok {
-		str.request()
-		link(str, str2)
-		return
-	}
-	if st.delayed {
-		str.request()
-	} else {
-		str.send(st)
-	}
-	mplus(str, str2, str1)
+	return append([]state{st}, mplus(str2, rem1)...)
 }
 
 func conj(g1, g2 goal) goal {
 	return func(st state) stream {
-		str := newStream()
-		go func() {
-			bind(str, g1(st), g2)
-		}()
-		return str
+		return bind(g1(st), g2)
 	}
 }
 
-func bind(str, str1 stream, g goal) {
-	if str1.bounded() {
-		if !str.more() {
-			close(*str.out)
-			return
-		}
-		st, ok := str1.receive()
-		if !ok {
-			close(*str.out)
-			return
-		}
-		str.request()
-		link(str, g(st))
-		return
+func bind(str stream, g goal) stream {
+	if len(str) == 0 {
+		return nil
 	}
-	str1.request()
-	if !str.more() {
-		*str1.in <- reqMsg{done: true}
-		close(*str.out)
+	st := str[0]
+	rem1 := str[1:]
+	if st.delayed != nil {
+		return stream{state{delayed: func() stream {
+			s1 := append(st.delayed(), rem1...)
+			return bind(s1, g)
+		}}}
 	}
-	st, ok := str1.receive()
-	if !ok {
-		close(*str.out)
-		return
-	}
-	str.request()
-	if st.delayed {
-		bind(str, str1, g)
-		return
-	}
-	bstr := newStream()
-	go func() {
-		bind(bstr, str1, g)
-	}()
-	mplus(str, g(st), bstr)
+	return mplus(g(st), bind(rem1, g))
 }
 
 func disj_plus(goals ...goal) goal {

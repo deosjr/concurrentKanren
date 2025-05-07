@@ -3,7 +3,7 @@ package main
 type state struct {
 	sub     *substitution
 	vc      int
-	delayed bool // signals an immature stream if true
+	delayed func() stream
 }
 
 var emptystate = state{sub: nil, vc: 0}
