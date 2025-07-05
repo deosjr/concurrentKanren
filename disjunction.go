@@ -16,30 +16,29 @@ func mplusplus(str stream, buffer []state, streams []stream) {
 	if len(buffer) == 0 {
 		buffer, streams = refillBuffer(str, streams)
 	}
-	req := <-str.req
-	if req.done {
+	done := str.getRequest()
+	if done {
 		for _, s := range streams {
-			sendDone(s.req)
+			s.sendDone()
 		}
 		str.close()
 		return
 	}
 	if len(buffer) > 0 {
-		sendState(req.onto, buffer[0])
+		str.sendState(buffer[0])
 		mplusplus(str, buffer[1:], streams)
 		return
 	}
 	if len(streams) != 0 {
 		panic("should never happen: productive streams remain but we didn't find anything to return?")
 	}
-	sendClose(req.onto)
-	str.close()
+	str.sendClose()
 }
 
 func refillBuffer(str stream, streams []stream) (buffer []state, active []stream) {
 	for _, s := range streams {
-		str.request(s)
-		rec, ok := <-str.rec
+		s.request()
+		rec, ok := s.receive()
 		if !ok {
 			panic("disj_conc read on closed channel")
 		}

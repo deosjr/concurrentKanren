@@ -6,8 +6,8 @@ package main
 // note we are not using channel close to signal end of stream;
 // that takes another request/inspection which causes complexity
 type stream struct {
-	req chan reqMsg
-	rec chan stateMsg
+	in chan bool // true means done, ie no more requests coming
+	out chan stateMsg
 }
 
 type stateMsg struct {
@@ -18,56 +18,63 @@ type stateMsg struct {
 	done    bool
 }
 
-type reqMsg struct {
-	onto chan stateMsg
-	done bool
+func newStream() stream {
+	in := make(chan bool, 1)
+	out := make(chan stateMsg)
+	return stream{in, out}
 }
 
-func newStream() stream {
-	req := make(chan reqMsg, 1)
-	rec := make(chan stateMsg)
-	return stream{req, rec}
+func (str stream) getRequest() bool {
+	return <-str.in
 }
 
 func (s stream) close() {
-	close(s.req)
-	close(s.rec)
+	close(s.in)
+	close(s.out)
 }
 
-func (sender stream) request(s stream) {
-	s.req <- reqMsg{onto: sender.rec}
+func (str stream) request() {
+	str.in <- false
 }
 
-func sendDone(ch chan reqMsg) {
-	ch <- reqMsg{done: true}
+func (str stream) receive() (stateMsg, bool) {
+	msg, ok := <-str.out
+	return msg, ok
 }
 
-func sendState(ch chan stateMsg, st state) {
-	ch <- stateMsg{st: st, ok: true}
+func (str stream) sendDone() {
+	str.in <- true
 }
 
-func sendStateAndClose(ch chan stateMsg, st state) {
-	ch <- stateMsg{st: st, ok: true, done: true}
+func (str stream) sendState(st state) {
+	str.out <- stateMsg{st: st, ok: true}
 }
 
-func sendClose(ch chan stateMsg) {
-	ch <- stateMsg{done: true}
+func (str stream) sendStateAndClose(st state) {
+	str.out <- stateMsg{st: st, ok: true, done: true}
 }
 
-func sendDelay(ch chan stateMsg) {
-	ch <- stateMsg{delayed: true}
+func (str stream) sendClose() {
+	str.out <- stateMsg{done: true}
+	str.close()
 }
 
-func sendForward(ch chan stateMsg, fwd stream) {
-	ch <- stateMsg{fwd: fwd}
+func (str stream) sendDelay() {
+	str.out <- stateMsg{delayed: true}
 }
 
-func sendForwardWithState(ch chan stateMsg, fwd stream, st state) {
-	ch <- stateMsg{fwd: fwd, st: st, ok: true}
+func (str stream) sendForward(fwd stream) {
+	str.out <- stateMsg{fwd: fwd}
+	str.close()
+}
+
+func (str stream) sendForwardWithState(fwd stream, st state) {
+	str.out <- stateMsg{fwd: fwd, st: st, ok: true}
+	str.close()
 }
 
 func (m stateMsg) isState() bool {
-	return m.ok && !m.done && m.fwd.req == nil
+	return m.ok && !m.done && m.fwd.in == nil
 }
 
 func (m stateMsg) isStateAndClose() bool {
@@ -83,30 +90,29 @@ func (m stateMsg) isDelay() bool {
 }
 
 func (m stateMsg) isForward() bool {
-	return m.fwd.req != nil && !m.ok
+	return m.fwd.in != nil && !m.ok
 }
 
 func (m stateMsg) isForwardWithState() bool {
-	return m.fwd.req != nil && m.ok
+	return m.fwd.in != nil && m.ok
 }
 
 func delay(f func() goal) goal {
 	return func(st state) stream {
 		str := newStream()
 		go func() {
-			req := <-str.req
-			if req.done {
+			done := str.getRequest()
+			if done {
 				str.close()
 				return
 			}
-			sendDelay(req.onto)
-			req = <-str.req
-			if req.done {
+			str.sendDelay()
+			done = str.getRequest()
+			if done {
 				str.close()
 				return
 			}
-			sendForward(req.onto, f()(st))
-			str.close()
+			str.sendForward(f()(st))
 		}()
 		return str
 	}
@@ -114,10 +120,9 @@ func delay(f func() goal) goal {
 
 func takeAll(str stream) []state {
 	states := []state{}
-	out := newStream()
 	for {
-		out.request(str)
-		rec, ok := <-out.rec
+		str.request()
+		rec, ok := str.receive()
 		if !ok {
 			panic("takeAll read on closed channel")
 		}
@@ -141,10 +146,9 @@ func takeAll(str stream) []state {
 
 func takeN(n int, str stream) []state {
 	states := []state{}
-	out := newStream()
 	for len(states) < n {
-		out.request(str)
-		rec, ok := <-out.rec
+		str.request()
+		rec, ok := str.receive()
 		if !ok {
 			panic("takeN read on closed channel")
 		}
@@ -164,6 +168,6 @@ func takeN(n int, str stream) []state {
 			continue
 		}
 	}
-	sendDone(str.req)
+	str.sendDone()
 	return states
 }
