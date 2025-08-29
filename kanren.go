@@ -182,6 +182,17 @@ func fresh3(f func(expression, expression, expression) goal) goal {
 	}
 }
 
+func fresh4(f func(expression, expression, expression, expression) goal) goal {
+	return func(st state) stream {
+		x := variable(st.vc)
+		y := variable(st.vc + 1)
+		z := variable(st.vc + 2)
+		a := variable(st.vc + 3)
+		newstate := state{sub: st.sub, vc: st.vc + 4}
+		return f(x, y, z, a)(newstate)
+	}
+}
+
 func fresh7(f func(expression, expression, expression, expression, expression, expression, expression) goal) goal {
 	return func(st state) stream {
 		x1 := variable(st.vc)

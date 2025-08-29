@@ -24,6 +24,14 @@ func eights(x expression) goal {
 	return disj(equalo(x, number(8)), delay(func() goal { return eights(x) }))
 }
 
+func testList(length int) expression {
+	l := make([]expression, length)
+	for i:=0; i<length; i++ {
+		l[i] = number(i)
+	}
+	return list(l...)
+}
+
 func main() {
 	/*
 		out := run(fresh1(func(x expression) goal {
@@ -32,11 +40,18 @@ func main() {
 		fmt.Println(out)
 	*/
 	// actual heavy goal to benchmark concurrency with
-	out := run(fresh3(func(q, x, y expression) goal {
-		return conj(
-			equalo(q, list(x, y)),
-			plusO(x, y, buildNum(10000)),
-		)
+	/*
+		out := run(fresh3(func(q, x, y expression) goal {
+			return conj(
+				equalo(q, list(x, y)),
+				plusO(x, y, buildNum(10000)),
+			)
+		}))
+	*/
+	test := testList(512)
+	out := run(fresh1(func(q expression) goal {
+		return disj(reverso(test, q), reverso(test, q))
 	}))
+	//fmt.Println(out)
 	fmt.Println(len(out))
 }
