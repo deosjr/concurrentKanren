@@ -159,31 +159,30 @@ func takeAll(str stream) []state {
 
 func takeN(n int, str stream) []state {
 	states := []state{}
-	/*
-		out := newStream()
-		for len(states) < n {
-			out.request(str)
-			rec, ok := <-out.rec
-			if !ok {
-				panic("takeN read on closed channel")
-			}
-			switch {
-			case rec.isState():
-				states = append(states, rec.st)
-			case rec.isStateAndClose():
-				return append(states, rec.st)
-			case rec.isClose():
-				return states
-			case rec.isForward():
-				str = rec.fwd
-			case rec.isForwardWithState():
-				states = append(states, rec.st)
-				str = rec.fwd
-			case rec.isDelay():
-				continue
-			}
+	out := newStream()
+	done := make(chan bool)
+	var takeFn receiveFn
+	takeFn = func(msg Message) {
+		switch t := msg.(type) {
+		case stateMessage:
+			states = append(states, t.st)
+		case stateCloseMessage:
+			states = append(states, t.st)
+			done <- true
+			return
+		case closeMessage:
+			done <- true
+			return
 		}
-		sendDone(str.req)
-	*/
+		if len(states) == n {
+			done <- true
+			return
+		}
+		request(out, str, false)
+		registerReceive(out, takeFn)
+	}
+	request(out, str, false)
+	registerReceive(out, takeFn)
+	<-done
 	return states
 }

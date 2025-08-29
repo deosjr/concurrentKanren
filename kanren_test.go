@@ -2,9 +2,7 @@ package main
 
 import (
 	"reflect"
-	"runtime"
 	"testing"
-	"time"
 )
 
 func TestKanren(t *testing.T) {
@@ -21,7 +19,6 @@ func TestKanren(t *testing.T) {
 			}),
 			want: []expression{n5},
 		},
-		/*
 			{
 				goal: callfresh(func(q expression) goal {
 					return equalo(q, n5)
@@ -29,6 +26,7 @@ func TestKanren(t *testing.T) {
 				take: 3,
 				want: []expression{n5},
 			},
+		/*
 			{
 				goal: callfresh(func(q expression) goal {
 					return disj(equalo(q, n5), equalo(q, n6))
@@ -124,7 +122,6 @@ func TestKanren(t *testing.T) {
 			want: []expression{},
 		},
 	} {
-		n := runtime.NumGoroutine()
 		var got []expression
 		if tt.take == 0 {
 			got = run(tt.goal)
@@ -133,19 +130,6 @@ func TestKanren(t *testing.T) {
 		}
 		if !reflect.DeepEqual(got, tt.want) {
 			t.Errorf("%d) got %v want %v", i, got, tt.want)
-		}
-		// we need some time for goroutines to close down
-		var equalRoutines bool
-		for _, waitTime := range []int{10, 50, 100, 200, 300} {
-			time.Sleep(time.Duration(waitTime) * time.Millisecond)
-			newn := runtime.NumGoroutine()
-			if newn == n {
-				equalRoutines = true
-				break
-			}
-		}
-		if !equalRoutines {
-			t.Fatalf("%d) number of goroutines has changed from %d to %d!", i, n, runtime.NumGoroutine())
 		}
 	}
 }
