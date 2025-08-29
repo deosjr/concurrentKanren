@@ -111,3 +111,59 @@ func plusO(n, m, k expression) goal {
 func minusO(n, m, k expression) goal {
 	return plusO(m, k, n)
 }
+
+func timesO(n, m, p expression) goal {
+	return delay(func() goal {
+		return disj_conc(
+			conj(equalo(emptylist, n), equalo(emptylist, p)),
+			conj_plus(posO(n), equalo(emptylist, m), equalo(emptylist, p)),
+			conj_plus(equalo(p1, n), posO(m), equalo(m, p)),
+			conj_plus(gt1O(n), equalo(p1, m), equalo(n, p)),
+			fresh2(func(x, z expression) goal {
+				return conj_plus(
+					equalo(pair{n0, x}, n), posO(x),
+					equalo(pair{n0, z}, p), posO(z),
+					gt1O(m),
+					timesO(x, m, z))
+			}),
+			fresh2(func(x, y expression) goal {
+				return conj_plus(
+					equalo(pair{n1, x}, n), posO(x),
+					equalo(pair{n0, y}, m), posO(y),
+					timesO(m, n, p))
+			}),
+			fresh2(func(x, y expression) goal {
+				return conj_plus(
+					equalo(pair{n1, x}, n), posO(x),
+					equalo(pair{n1, y}, m), posO(y),
+					oddTimesO(x, n, m, p))
+			}),
+		)
+	})
+}
+
+func oddTimesO(x, n, m, p expression) goal {
+	return fresh1(func(q expression) goal {
+		return conj_plus(
+			boundTimesO(q, p, n, m),
+			timesO(x, m, q),
+			plusO(pair{n0, q}, m, p))
+	})
+}
+
+func boundTimesO(q, p, n, m expression) goal {
+	return disj(
+		conj(equalo(emptylist, q), posO(p)),
+		fresh7(func(a0, a1, a2, a3, x, y, z expression) goal {
+			return conj_plus(
+				equalo(pair{a0, x}, q),
+				equalo(pair{a1, y}, p),
+				disj(
+					conj_plus(
+						equalo(emptylist, n),
+						equalo(pair{a2, z}, m),
+						boundTimesO(x, y, z, emptylist)),
+					conj(equalo(pair{a3, z}, n), boundTimesO(x, y, z, m))))
+		}),
+	)
+}

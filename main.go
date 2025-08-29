@@ -48,10 +48,12 @@ func main() {
 			)
 		}))
 	*/
-	test := testList(512)
-	out := run(fresh1(func(q expression) goal {
-		return disj(reverso(test, q), reverso(test, q))
-	}))
-	//fmt.Println(out)
-	fmt.Println(len(out))
+		out := run(fresh3(func(q, x, y expression) goal {
+			return conj(
+				equalo(q, list(x, y)),
+				timesO(x, y, buildNum(6)),
+			)
+		}))
+	fmt.Println(out)
+	//fmt.Println(len(out))
 }
