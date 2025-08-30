@@ -46,7 +46,9 @@ var (
 // todo: use waitgroups properly. current problem is sometimes all threads are 'done' halfway computation
 // idea: have run/run* signal end of computation, setting a flag?
 func startWorkers() *sync.WaitGroup {
+	testDone = false
 	var wg sync.WaitGroup
+	wg.Add(1)
 	ch := make(chan struct{}, numWorkers)
 	for range numWorkers {
 		ch <- struct{}{}
@@ -58,12 +60,20 @@ func startWorkers() *sync.WaitGroup {
 func manageWorkers(ch chan struct{}, wg *sync.WaitGroup) {
 	for {
 		<-ch
+		if testDone {
+			break
+		}
 		wg.Add(1)
 		go work(ch, wg)
 	}
 }
 
+// todo: replace by context?
+var testDone bool
+
 func awaitWorkers(wg *sync.WaitGroup) {
+	testDone = true
+	wg.Done()
 	wg.Wait()
 }
 
