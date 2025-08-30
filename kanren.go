@@ -183,6 +183,7 @@ func mKreify(states []state) []expression {
 type fresh1Goal struct {
 	f func(expression) goal
 }
+
 func fresh1(f func(x expression) goal) goal {
 	return fresh1Goal{f}
 }
@@ -195,6 +196,7 @@ func (f fresh1Goal) Init(str stream, st state) {
 type fresh2Goal struct {
 	f func(expression, expression) goal
 }
+
 func fresh2(f func(x, y expression) goal) goal {
 	return fresh2Goal{f}
 }
@@ -208,6 +210,7 @@ func (f fresh2Goal) Init(str stream, st state) {
 type fresh3Goal struct {
 	f func(expression, expression, expression) goal
 }
+
 func fresh3(f func(x, y, z expression) goal) goal {
 	return fresh3Goal{f}
 }
@@ -217,4 +220,23 @@ func (f fresh3Goal) Init(str stream, st state) {
 	z := variable(st.vc + 2)
 	newstate := state{sub: st.sub, vc: st.vc + 3}
 	f.f(x, y, z).Init(str, newstate)
+}
+
+type fresh7Goal struct {
+	f func(expression, expression, expression, expression, expression, expression, expression) goal
+}
+
+func fresh7(f func(x, y, z, a, b, c, d expression) goal) goal {
+	return fresh7Goal{f}
+}
+func (f fresh7Goal) Init(str stream, st state) {
+	x := variable(st.vc)
+	y := variable(st.vc + 1)
+	z := variable(st.vc + 2)
+	a := variable(st.vc + 3)
+	b := variable(st.vc + 4)
+	c := variable(st.vc + 5)
+	d := variable(st.vc + 6)
+	newstate := state{sub: st.sub, vc: st.vc + 7}
+	f.f(x, y, z, a, b, c, d).Init(str, newstate)
 }

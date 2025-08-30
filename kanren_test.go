@@ -64,22 +64,20 @@ func TestKanren(t *testing.T) {
 			// binary trampolining unfairness only fixed up until a certain point
 			want: []expression{n5, n6, n7, n5, n8, n6, n5, n7, n8},
 		},
-		/*
-			{
-				goal: callfresh(func(x expression) goal {
-					return disj_conc(fives(x), sixes(x), sevens(x))
-				}),
-				take: 9,
-				want: []expression{n5, n6, n7, n5, n6, n7, n5, n6, n7},
-			},
-			{
-				goal: callfresh(func(x expression) goal {
-					return disj_conc(nevero(), fives(x), sixes(x), sevens(x))
-				}),
-				take: 9,
-				want: []expression{n5, n6, n7, n5, n6, n7, n5, n6, n7},
-			},
-		*/
+		{
+			goal: callfresh(func(x expression) goal {
+				return disj_conc(fives(x), sixes(x), sevens(x))
+			}),
+			take: 9,
+			want: []expression{n5, n6, n7, n5, n6, n7, n5, n6, n7},
+		},
+		{
+			goal: callfresh(func(x expression) goal {
+				return disj_conc(nevero(), fives(x), sixes(x), sevens(x))
+			}),
+			take: 9,
+			want: []expression{n5, n6, n7, n5, n6, n7, n5, n6, n7},
+		},
 		{
 			goal: fresh2(func(x, y expression) goal {
 				return conj(equalo(x, n5), equalo(y, n6))

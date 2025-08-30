@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"sync"
 )
 
@@ -44,6 +43,8 @@ var (
 	suspendedRec = map[stream]receiveFn{}
 )
 
+// todo: use waitgroups properly. current problem is sometimes all threads are 'done' halfway computation
+// idea: have run/run* signal end of computation, setting a flag?
 func startWorkers() *sync.WaitGroup {
 	var wg sync.WaitGroup
 	ch := make(chan struct{}, numWorkers)
@@ -67,14 +68,13 @@ func awaitWorkers(wg *sync.WaitGroup) {
 }
 
 func work(ch chan struct{}, wg *sync.WaitGroup) {
+	defer wg.Done()
 	for {
 		w := pool.Get()
 		if w == nil {
 			ch <- struct{}{}
-			wg.Done()
 			return
 		}
-		fmt.Printf("WORK %#v\n", w)
 		switch t := w.(type) {
 		case initWork:
 			t.goal.Init(t.str, t.st)
@@ -109,7 +109,6 @@ func registerRequest(str stream, reqFn reqFn) {
 		suspendedReq[str] = reqFn
 	}
 	reqMut.Unlock()
-	fmt.Printf("REG REQ %d %#v %t\n", str, req, ok)
 	if !ok {
 		return
 	}
@@ -128,7 +127,6 @@ func request(sender, receiver stream, done bool) {
 		requests[receiver] = requestWork{sender: sender, done: done}
 	}
 	reqMut.Unlock()
-	fmt.Printf("REQ %d %d %t\n", sender, receiver, ok)
 	if !ok {
 		return
 	}
@@ -145,7 +143,6 @@ func registerReceive(str stream, recFn receiveFn) {
 		suspendedRec[str] = recFn
 	}
 	recMut.Unlock()
-	fmt.Printf("REG REC %d %#v %t\n", str, msg, ok)
 	if !ok {
 		return
 	}
@@ -166,7 +163,6 @@ func send(receiver stream, msg Message) {
 		inbox[receiver] = msg
 	}
 	recMut.Unlock()
-	fmt.Printf("SEND %d %d %t\n", msg.Sender(), receiver, ok)
 	if !ok {
 		return
 	}

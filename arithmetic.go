@@ -1,7 +1,6 @@
 // after Appendix B of http://webyrd.net/quines/quines.pdf
 package main
 
-/*
 const n0 = number(0)
 const n1 = number(1)
 
@@ -112,4 +111,3 @@ func plusO(n, m, k expression) goal {
 func minusO(n, m, k expression) goal {
 	return plusO(m, k, n)
 }
-*/
