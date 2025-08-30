@@ -2,7 +2,6 @@ package main
 
 import "fmt"
 
-/*
 func nevero() goal {
 	return delay(func() goal { return nevero() })
 }
@@ -22,7 +21,6 @@ func sevens(x expression) goal {
 func eights(x expression) goal {
 	return disj(equalo(x, number(8)), delay(func() goal { return eights(x) }))
 }
-*/
 
 func main() {
 	out := run(callfresh(func(x expression) goal {

@@ -65,14 +65,33 @@ func sendClose(sender, receiver stream) {
 	send(receiver, m)
 }
 
+type forwardMessage struct {
+	message
+	fwd stream
+}
+
+func sendForward(sender, receiver, fwd stream) {
+	m := forwardMessage{message: message{sender}, fwd: fwd}
+	send(receiver, m)
+}
+
 type forwardWithStateMessage struct {
 	message
-	st state
+	st  state
 	fwd stream
 }
 
 func sendForwardWithState(sender, receiver, fwd stream, st state) {
-	m := forwardWithStateMessage{message: message{sender}, st:st, fwd:fwd}
+	m := forwardWithStateMessage{message: message{sender}, st: st, fwd: fwd}
+	send(receiver, m)
+}
+
+type delayMessage struct {
+	message
+}
+
+func sendDelay(sender, receiver stream) {
+	m := delayMessage{message: message{sender}}
 	send(receiver, m)
 }
 
@@ -118,29 +137,29 @@ func (m stateMsg) isForwardWithState() bool {
 }
 */
 
-/*
-func delay(f func() goal) goal {
-	return func(st state) stream {
-		str := newStream()
-		go func() {
-			req := <-str.req
-			if req.done {
-				str.close()
-				return
-			}
-			sendDelay(req.onto)
-			req = <-str.req
-			if req.done {
-				str.close()
-				return
-			}
-			sendForward(req.onto, f()(st))
-			str.close()
-		}()
-		return str
-	}
+type delayGoal struct {
+	f func() goal
 }
-*/
+
+func delay(f func() goal) goal {
+	return delayGoal{f: f}
+}
+
+func (d delayGoal) Init(str stream, st state) {
+	registerRequest(str, func(sender stream, done bool) {
+		if done {
+			return
+		}
+		sendDelay(str, sender)
+		registerRequest(str, func(sender stream, done bool) {
+			if done {
+				return
+			}
+			fwd := registerInit(d.f(), st)
+			sendForward(str, sender, fwd)
+		})
+	})
+}
 
 func takeAll(str stream) []state {
 	states := []state{}
@@ -158,9 +177,12 @@ func takeAll(str stream) []state {
 		case closeMessage:
 			done <- true
 			return
+		case forwardMessage:
+			str = t.fwd
 		case forwardWithStateMessage:
 			states = append(states, t.st)
 			str = t.fwd
+		case delayMessage:
 		}
 		request(out, str, false)
 		registerReceive(out, takeFn)
@@ -187,9 +209,12 @@ func takeN(n int, str stream) []state {
 		case closeMessage:
 			done <- true
 			return
+		case forwardMessage:
+			str = t.fwd
 		case forwardWithStateMessage:
 			states = append(states, t.st)
 			str = t.fwd
+		case delayMessage:
 		}
 		if len(states) == n {
 			request(out, str, true)

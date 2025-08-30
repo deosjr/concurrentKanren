@@ -74,35 +74,56 @@ func mplus_(sender, str, str1, str2 stream) {
 			mplus(str, str2, str1)
 		case stateCloseMessage:
 			sendForwardWithState(str, sender, str2, t.st)
-			return
+		case closeMessage:
+			sendForward(str, sender, str2)
+		case forwardMessage:
+			mplus_(sender, str, t.fwd, str2)
+		case forwardWithStateMessage:
+			sendState(str, sender, t.st)
+			mplus(str, str2, t.fwd)
+		case delayMessage:
+			mplus_(sender, str, str2, str1)
 		}
 	})
 
-/*
-	str.request(str1)
-	rec, ok := <-str.rec
-	if !ok {
-		panic("mplus tried to read from closed channel")
-	}
-	switch {
-	case rec.isState():
-		sendState(req, rec.st)
-		mplus(str, str2, str1)
-	case rec.isStateAndClose():
-		sendForwardWithState(req, str2, rec.st)
-		str.close()
-	case rec.isClose():
-		sendForward(req, str2)
-		str.close()
-	case rec.isForward():
-		mplus_(req, str, rec.fwd, str2)
-	case rec.isForwardWithState():
-		sendState(req, rec.st)
-		mplus(str, str2, rec.fwd)
-	case rec.isDelay():
-		mplus_(req, str, str2, str1)
-	}
-*/
+	/*
+	   str.request(str1)
+	   rec, ok := <-str.rec
+
+	   	if !ok {
+	   		panic("mplus tried to read from closed channel")
+	   	}
+
+	   switch {
+	   case rec.isState():
+
+	   	sendState(req, rec.st)
+	   	mplus(str, str2, str1)
+
+	   case rec.isStateAndClose():
+
+	   	sendForwardWithState(req, str2, rec.st)
+	   	str.close()
+
+	   case rec.isClose():
+
+	   	sendForward(req, str2)
+	   	str.close()
+
+	   case rec.isForward():
+
+	   	mplus_(req, str, rec.fwd, str2)
+
+	   case rec.isForwardWithState():
+
+	   	sendState(req, rec.st)
+	   	mplus(str, str2, rec.fwd)
+
+	   case rec.isDelay():
+
+	   		mplus_(req, str, str2, str1)
+	   	}
+	*/
 }
 
 /*
@@ -152,6 +173,7 @@ func bind_(req chan stateMsg, str, str1 stream, g goal) {
 		bind_(req, str, str1, g)
 	}
 }
+*/
 
 func disj_plus(goals ...goal) goal {
 	if len(goals) == 1 {
@@ -160,6 +182,7 @@ func disj_plus(goals ...goal) goal {
 	return disj(goals[0], disj_plus(goals[1:]...))
 }
 
+/*
 func conj_plus(goals ...goal) goal {
 	if len(goals) == 1 {
 		return goals[0]
