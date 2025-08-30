@@ -32,9 +32,8 @@ var (
 	suspendedReq = map[stream]reqFn{}
 	inbox        = map[stream]Message{}
 	suspendedRec = map[stream]receiveFn{}
-	qIn = make(chan any, 100)
-	qOut = make(chan any, 100)
-	q = []any{}
+	q            = []any{}
+	qMut         sync.Mutex
 )
 
 func startWorkers() *sync.WaitGroup {
@@ -45,7 +44,6 @@ func startWorkers() *sync.WaitGroup {
 	for range numWorkers {
 		ch <- struct{}{}
 	}
-	go manageQueue(q)
 	go manageWorkers(ch, &wg)
 	return &wg
 }
@@ -73,10 +71,16 @@ func awaitWorkers(wg *sync.WaitGroup) {
 func work(ch chan struct{}, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
-		// doesnt matter if req/resp gets swapped between workers!
-		qIn <- nil
-		w := <-qOut
-		if w == nil {
+		var w any
+		var ok bool
+		qMut.Lock()
+		if len(q) > 0 {
+			w = q[0]
+			q = q[1:]
+			ok = true
+		}
+		qMut.Unlock()
+		if !ok {
 			ch <- struct{}{}
 			return
 		}
@@ -103,7 +107,9 @@ func registerRequest(str stream, reqFn reqFn) {
 		return
 	}
 	req.fn = reqFn
-	qIn <- req
+	qMut.Lock()
+	q = append(q, req)
+	qMut.Unlock()
 }
 
 // make a request for more work. suspend if no one is waiting for requests
@@ -136,10 +142,13 @@ func registerReceive(str stream, recFn receiveFn) {
 	if !ok {
 		return
 	}
-	qIn <- receiveWork{
+	qMut.Lock()
+	rec := receiveWork{
 		msg: msg,
 		fn:  recFn,
 	}
+	q = append(q, rec)
+	qMut.Unlock()
 }
 
 // guarantee: there will not be another message still waiting to be received
@@ -157,22 +166,4 @@ func send(receiver stream, msg Message) {
 		return
 	}
 	fn(msg)
-}
-
-func manageQueue(q []any) {
-	for {
-		req := <-qIn
-		if req == nil {
-			// request for item
-			if len(q) == 0 {
-				qOut <- nil
-				continue
-			}
-			v := q[0]
-			q = q[1:]
-			qOut <- v
-			continue
-		}
-		q = append(q, req)
-	}
 }
