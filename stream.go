@@ -95,48 +95,6 @@ func sendDelay(sender, receiver stream) {
 	send(receiver, m)
 }
 
-/*
-func sendClose(ch chan stateMsg) {
-	ch <- stateMsg{done: true}
-}
-
-func sendDelay(ch chan stateMsg) {
-	ch <- stateMsg{delayed: true}
-}
-
-func sendForward(ch chan stateMsg, fwd stream) {
-	ch <- stateMsg{fwd: fwd}
-}
-
-func sendForwardWithState(ch chan stateMsg, fwd stream, st state) {
-	ch <- stateMsg{fwd: fwd, st: st, ok: true}
-}
-
-func (m stateMsg) isState() bool {
-	return m.ok && !m.done && m.fwd.req == nil
-}
-
-func (m stateMsg) isStateAndClose() bool {
-	return m.ok && m.done
-}
-
-func (m stateMsg) isClose() bool {
-	return !m.ok && m.done
-}
-
-func (m stateMsg) isDelay() bool {
-	return m.delayed
-}
-
-func (m stateMsg) isForward() bool {
-	return m.fwd.req != nil && !m.ok
-}
-
-func (m stateMsg) isForwardWithState() bool {
-	return m.fwd.req != nil && m.ok
-}
-*/
-
 type delayGoal struct {
 	f func() goal
 }
@@ -145,7 +103,8 @@ func delay(f func() goal) goal {
 	return delayGoal{f: f}
 }
 
-func (d delayGoal) Init(str stream, st state) {
+func (d delayGoal) Apply(st state) stream {
+	str := newStream()
 	registerRequest(str, func(sender stream, done bool) {
 		if done {
 			return
@@ -155,10 +114,11 @@ func (d delayGoal) Init(str stream, st state) {
 			if done {
 				return
 			}
-			fwd := registerInit(d.f(), st)
+			fwd := d.f().Apply(st)
 			sendForward(str, sender, fwd)
 		})
 	})
+	return str
 }
 
 func takeAll(str stream) []state {

@@ -4,19 +4,11 @@ import (
 	"sync"
 )
 
-// three kinds of work: init, request and receive
-// when a goal is applied to a state, it spawns init work
-// this eventually results in a yield, when waiting for request
+// two kinds of work: request and receive
 // sender of request will suspend on receive
 // upon request, further requests of subgoals may be needed before we can send
 // receive resumes when a value exists (can be immediate without suspend!)
 // sending does _not_ yield, only resume some more tasks
-
-type initWork struct {
-	goal goal
-	str  stream
-	st   state
-}
 
 type requestWork struct {
 	sender stream
@@ -43,8 +35,6 @@ var (
 	suspendedRec = map[stream]receiveFn{}
 )
 
-// todo: use waitgroups properly. current problem is sometimes all threads are 'done' halfway computation
-// idea: have run/run* signal end of computation, setting a flag?
 func startWorkers() *sync.WaitGroup {
 	testDone = false
 	var wg sync.WaitGroup
@@ -86,27 +76,12 @@ func work(ch chan struct{}, wg *sync.WaitGroup) {
 			return
 		}
 		switch t := w.(type) {
-		case initWork:
-			t.goal.Init(t.str, t.st)
 		case requestWork:
 			t.fn(t.sender, t.done)
 		case receiveWork:
 			t.fn(t.msg)
 		}
 	}
-}
-
-// goal application spawns work
-// todo: does this really have to exist? cant this be done on goal creation
-// in the creating thread?
-func registerInit(g goal, st state) stream {
-	str := newStream()
-	pool.Put(initWork{
-		goal: g,
-		str:  str,
-		st:   st,
-	})
-	return str
 }
 
 // block waiting for more requests for work

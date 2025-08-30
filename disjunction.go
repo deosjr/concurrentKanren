@@ -8,13 +8,15 @@ func disj_conc(goals ...goal) goal {
 	return disjConcGoal{goals: goals}
 }
 
-func (dc disjConcGoal) Init(str stream, st state) {
+func (dc disjConcGoal) Apply(st state) stream {
+	str := newStream()
 	streams := []stream{}
 	for _, g := range dc.goals {
-		s := registerInit(g, st)
+		s := g.Apply(st)
 		streams = append(streams, s)
 	}
 	mplusplus(str, nil, streams)
+	return str
 }
 
 func mplusplus(str stream, buffer []state, streams []stream) {

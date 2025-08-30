@@ -1,7 +1,7 @@
 package main
 
 type goal interface {
-	Init(str stream, st state)
+	Apply(st state) stream
 }
 
 type equaloGoal struct {
@@ -12,7 +12,8 @@ func equalo(u, v expression) goal {
 	return equaloGoal{u: u, v: v}
 }
 
-func (e equaloGoal) Init(str stream, st state) {
+func (e equaloGoal) Apply(st state) stream {
+	str := newStream()
 	s, ok := st.sub.unify(e.u, e.v)
 	registerRequest(str, func(sender stream, done bool) {
 		if done {
@@ -24,6 +25,7 @@ func (e equaloGoal) Init(str stream, st state) {
 			sendClose(str, sender)
 		}
 	})
+	return str
 }
 
 type callfreshGoal struct {
@@ -34,10 +36,10 @@ func callfresh(f func(x expression) goal) goal {
 	return callfreshGoal{f}
 }
 
-func (cf callfreshGoal) Init(str stream, st state) {
+func (cf callfreshGoal) Apply(st state) stream {
 	v := variable(st.vc)
 	newstate := state{sub: st.sub, vc: st.vc + 1}
-	cf.f(v).Init(str, newstate)
+	return cf.f(v).Apply(newstate)
 }
 
 type disjGoal struct {
@@ -48,10 +50,12 @@ func disj(g1, g2 goal) goal {
 	return disjGoal{g1, g2}
 }
 
-func (d disjGoal) Init(str stream, st state) {
-	str1 := registerInit(d.g1, st)
-	str2 := registerInit(d.g2, st)
+func (d disjGoal) Apply(st state) stream {
+	str := newStream()
+	str1 := d.g1.Apply(st)
+	str2 := d.g2.Apply(st)
 	mplus(str, str1, str2)
+	return str
 }
 
 func mplus(str, str1, str2 stream) {
@@ -95,9 +99,11 @@ func conj(g1, g2 goal) goal {
 	return conjGoal{g1, g2}
 }
 
-func (c conjGoal) Init(str stream, st state) {
-	str1 := registerInit(c.g1, st)
+func (c conjGoal) Apply(st state) stream {
+	str := newStream()
+	str1 := c.g1.Apply(st)
 	bind(str, str1, c.g2)
+	return str
 }
 
 func bind(str, str1 stream, g goal) {
@@ -117,10 +123,10 @@ func bind_(sender, str, str1 stream, g goal) {
 		case stateMessage:
 			bstr := newStream()
 			bind(bstr, str1, g)
-			conjStr := registerInit(g, t.st)
+			conjStr := g.Apply(t.st)
 			mplus_(sender, str, conjStr, bstr)
 		case stateCloseMessage:
-			conjStr := registerInit(g, t.st)
+			conjStr := g.Apply(t.st)
 			sendForward(str, sender, conjStr)
 		case closeMessage:
 			sendClose(str, sender)
@@ -129,7 +135,7 @@ func bind_(sender, str, str1 stream, g goal) {
 		case forwardWithStateMessage:
 			bstr := newStream()
 			bind(bstr, t.fwd, g)
-			conjStr := registerInit(g, t.st)
+			conjStr := g.Apply(t.st)
 			mplus_(sender, str, conjStr, bstr)
 		case delayMessage:
 			bind_(sender, str, str1, g)
@@ -154,7 +160,7 @@ func conj_plus(goals ...goal) goal {
 func run(goals ...goal) []expression {
 	wg := startWorkers()
 	g := conj_plus(goals...)
-	stream := registerInit(g, emptystate)
+	stream := g.Apply(emptystate)
 	out := mKreify(takeAll(stream))
 	awaitWorkers(wg)
 	return out
@@ -163,7 +169,7 @@ func run(goals ...goal) []expression {
 func runN(n int, goals ...goal) []expression {
 	wg := startWorkers()
 	g := conj_plus(goals...)
-	stream := registerInit(g, emptystate)
+	stream := g.Apply(emptystate)
 	out := mKreify(takeN(n, stream))
 	awaitWorkers(wg)
 	return out
@@ -187,10 +193,10 @@ type fresh1Goal struct {
 func fresh1(f func(x expression) goal) goal {
 	return fresh1Goal{f}
 }
-func (f fresh1Goal) Init(str stream, st state) {
+func (f fresh1Goal) Apply(st state) stream {
 	x := variable(st.vc)
 	newstate := state{sub: st.sub, vc: st.vc + 1}
-	f.f(x).Init(str, newstate)
+	return f.f(x).Apply(newstate)
 }
 
 type fresh2Goal struct {
@@ -200,11 +206,11 @@ type fresh2Goal struct {
 func fresh2(f func(x, y expression) goal) goal {
 	return fresh2Goal{f}
 }
-func (f fresh2Goal) Init(str stream, st state) {
+func (f fresh2Goal) Apply(st state) stream {
 	x := variable(st.vc)
 	y := variable(st.vc + 1)
 	newstate := state{sub: st.sub, vc: st.vc + 2}
-	f.f(x, y).Init(str, newstate)
+	return f.f(x, y).Apply(newstate)
 }
 
 type fresh3Goal struct {
@@ -214,12 +220,12 @@ type fresh3Goal struct {
 func fresh3(f func(x, y, z expression) goal) goal {
 	return fresh3Goal{f}
 }
-func (f fresh3Goal) Init(str stream, st state) {
+func (f fresh3Goal) Apply(st state) stream {
 	x := variable(st.vc)
 	y := variable(st.vc + 1)
 	z := variable(st.vc + 2)
 	newstate := state{sub: st.sub, vc: st.vc + 3}
-	f.f(x, y, z).Init(str, newstate)
+	return f.f(x, y, z).Apply(newstate)
 }
 
 type fresh7Goal struct {
@@ -229,7 +235,7 @@ type fresh7Goal struct {
 func fresh7(f func(x, y, z, a, b, c, d expression) goal) goal {
 	return fresh7Goal{f}
 }
-func (f fresh7Goal) Init(str stream, st state) {
+func (f fresh7Goal) Apply(st state) stream {
 	x := variable(st.vc)
 	y := variable(st.vc + 1)
 	z := variable(st.vc + 2)
@@ -238,5 +244,5 @@ func (f fresh7Goal) Init(str stream, st state) {
 	c := variable(st.vc + 5)
 	d := variable(st.vc + 6)
 	newstate := state{sub: st.sub, vc: st.vc + 7}
-	f.f(x, y, z, a, b, c, d).Init(str, newstate)
+	return f.f(x, y, z, a, b, c, d).Apply(newstate)
 }
