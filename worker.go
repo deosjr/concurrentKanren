@@ -17,7 +17,7 @@ type requestWork struct {
 }
 
 type receiveWork struct {
-	msg Message
+	msg message
 	fn  receiveFn
 }
 
@@ -30,7 +30,7 @@ var (
 	recMut       sync.Mutex
 	requests     = map[stream]requestWork{}
 	suspendedReq = map[stream]reqFn{}
-	inbox        = map[stream]Message{}
+	inbox        = map[stream]message{}
 	suspendedRec = map[stream]receiveFn{}
 	q            = []any{}
 	qMut         sync.Mutex
@@ -153,7 +153,7 @@ func registerReceive(str stream, recFn receiveFn) {
 
 // guarantee: there will not be another message still waiting to be received
 // because we only send upon request
-func send(receiver stream, msg Message) {
+func send(receiver stream, msg message) {
 	recMut.Lock()
 	fn, ok := suspendedRec[receiver]
 	if ok {

@@ -17,81 +17,53 @@ func newStream() stream {
 
 type reqFn func(sender stream, done bool)
 
-type receiveFn func(msg Message)
-
-type Message interface {
-	Done() bool
-	Sender() stream
-}
+type receiveFn func(msg message)
 
 type message struct {
-	sender stream
+	//sender  stream
+	msgtype msgtype
+	st      state
+	fwd     stream
 }
 
-func (m message) Done() bool {
-	return false
-}
+type msgtype uint8
 
-func (m message) Sender() stream {
-	return m.sender
-}
-
-type stateMessage struct {
-	message
-	st state
-}
+const (
+	stateMessage msgtype = iota
+	stateCloseMessage
+	closeMessage
+	forwardMessage
+	forwardWithStateMessage
+	delayMessage
+)
 
 func sendState(sender, receiver stream, st state) {
-	m := stateMessage{message: message{sender}, st: st}
+	m := message{msgtype: stateMessage, st: st}
 	send(receiver, m)
-}
-
-type stateCloseMessage struct {
-	message
-	st state
 }
 
 func sendStateAndClose(sender, receiver stream, st state) {
-	m := stateCloseMessage{message: message{sender}, st: st}
+	m := message{msgtype: stateCloseMessage, st: st}
 	send(receiver, m)
-}
-
-type closeMessage struct {
-	message
 }
 
 func sendClose(sender, receiver stream) {
-	m := closeMessage{message: message{sender}}
+	m := message{msgtype: closeMessage}
 	send(receiver, m)
-}
-
-type forwardMessage struct {
-	message
-	fwd stream
 }
 
 func sendForward(sender, receiver, fwd stream) {
-	m := forwardMessage{message: message{sender}, fwd: fwd}
+	m := message{msgtype: forwardMessage, fwd: fwd}
 	send(receiver, m)
-}
-
-type forwardWithStateMessage struct {
-	message
-	st  state
-	fwd stream
 }
 
 func sendForwardWithState(sender, receiver, fwd stream, st state) {
-	m := forwardWithStateMessage{message: message{sender}, st: st, fwd: fwd}
+	m := message{msgtype: forwardWithStateMessage, fwd: fwd, st: st}
 	send(receiver, m)
 }
 
-type delayMessage struct {
-	message
-}
-
 func sendDelay(sender, receiver stream) {
-	m := delayMessage{message: message{sender}}
+	m := message{msgtype: delayMessage}
 	send(receiver, m)
 }
 
@@ -126,22 +98,22 @@ func takeAll(str stream) []state {
 	out := newStream()
 	done := make(chan bool)
 	var takeFn receiveFn
-	takeFn = func(msg Message) {
-		switch t := msg.(type) {
+	takeFn = func(msg message) {
+		switch msg.msgtype {
 		case stateMessage:
-			states = append(states, t.st)
+			states = append(states, msg.st)
 		case stateCloseMessage:
-			states = append(states, t.st)
+			states = append(states, msg.st)
 			done <- true
 			return
 		case closeMessage:
 			done <- true
 			return
 		case forwardMessage:
-			str = t.fwd
+			str = msg.fwd
 		case forwardWithStateMessage:
-			states = append(states, t.st)
-			str = t.fwd
+			states = append(states, msg.st)
+			str = msg.fwd
 		case delayMessage:
 		}
 		request(out, str, false)
@@ -158,22 +130,22 @@ func takeN(n int, str stream) []state {
 	out := newStream()
 	done := make(chan bool)
 	var takeFn receiveFn
-	takeFn = func(msg Message) {
-		switch t := msg.(type) {
+	takeFn = func(msg message) {
+		switch msg.msgtype {
 		case stateMessage:
-			states = append(states, t.st)
+			states = append(states, msg.st)
 		case stateCloseMessage:
-			states = append(states, t.st)
+			states = append(states, msg.st)
 			done <- true
 			return
 		case closeMessage:
 			done <- true
 			return
 		case forwardMessage:
-			str = t.fwd
+			str = msg.fwd
 		case forwardWithStateMessage:
-			states = append(states, t.st)
-			str = t.fwd
+			states = append(states, msg.st)
+			str = msg.fwd
 		case delayMessage:
 		}
 		if len(states) == n {

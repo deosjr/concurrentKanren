@@ -71,20 +71,20 @@ func mplus(str, str1, str2 stream) {
 
 func mplus_(sender, str, str1, str2 stream) {
 	request(str, str1, false)
-	registerReceive(str, func(msg Message) {
-		switch t := msg.(type) {
+	registerReceive(str, func(msg message) {
+		switch msg.msgtype {
 		case stateMessage:
-			sendState(str, sender, t.st)
+			sendState(str, sender, msg.st)
 			mplus(str, str2, str1)
 		case stateCloseMessage:
-			sendForwardWithState(str, sender, str2, t.st)
+			sendForwardWithState(str, sender, str2, msg.st)
 		case closeMessage:
 			sendForward(str, sender, str2)
 		case forwardMessage:
-			mplus_(sender, str, t.fwd, str2)
+			mplus_(sender, str, msg.fwd, str2)
 		case forwardWithStateMessage:
-			sendState(str, sender, t.st)
-			mplus(str, str2, t.fwd)
+			sendState(str, sender, msg.st)
+			mplus(str, str2, msg.fwd)
 		case delayMessage:
 			mplus_(sender, str, str2, str1)
 		}
@@ -118,24 +118,24 @@ func bind(str, str1 stream, g goal) {
 
 func bind_(sender, str, str1 stream, g goal) {
 	request(str, str1, false)
-	registerReceive(str, func(msg Message) {
-		switch t := msg.(type) {
+	registerReceive(str, func(msg message) {
+		switch msg.msgtype {
 		case stateMessage:
 			bstr := newStream()
 			bind(bstr, str1, g)
-			conjStr := g.Apply(t.st)
+			conjStr := g.Apply(msg.st)
 			mplus_(sender, str, conjStr, bstr)
 		case stateCloseMessage:
-			conjStr := g.Apply(t.st)
+			conjStr := g.Apply(msg.st)
 			sendForward(str, sender, conjStr)
 		case closeMessage:
 			sendClose(str, sender)
 		case forwardMessage:
-			bind_(sender, str, t.fwd, g)
+			bind_(sender, str, msg.fwd, g)
 		case forwardWithStateMessage:
 			bstr := newStream()
-			bind(bstr, t.fwd, g)
-			conjStr := g.Apply(t.st)
+			bind(bstr, msg.fwd, g)
+			conjStr := g.Apply(msg.st)
 			mplus_(sender, str, conjStr, bstr)
 		case delayMessage:
 			bind_(sender, str, str1, g)

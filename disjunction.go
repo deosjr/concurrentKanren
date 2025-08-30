@@ -69,20 +69,20 @@ func refillBufferN(str stream, streams []stream, i int, buffer []state, active [
 	}
 	s := streams[i]
 	request(str, s, false)
-	registerReceive(str, func(msg Message) {
-		switch t := msg.(type) {
+	registerReceive(str, func(msg message) {
+		switch msg.msgtype {
 		case stateMessage:
-			buffer = append(buffer, t.st)
+			buffer = append(buffer, msg.st)
 			active = append(active, s)
 		case stateCloseMessage:
-			buffer = append(buffer, t.st)
+			buffer = append(buffer, msg.st)
 		case closeMessage:
 			break
 		case forwardMessage:
-			active = append(active, t.fwd)
+			active = append(active, msg.fwd)
 		case forwardWithStateMessage:
-			buffer = append(buffer, t.st)
-			active = append(active, t.fwd)
+			buffer = append(buffer, msg.st)
+			active = append(active, msg.fwd)
 		case delayMessage:
 			active = append(active, s)
 		}
