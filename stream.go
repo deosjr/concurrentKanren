@@ -65,6 +65,17 @@ func sendClose(sender, receiver stream) {
 	send(receiver, m)
 }
 
+type forwardWithStateMessage struct {
+	message
+	st state
+	fwd stream
+}
+
+func sendForwardWithState(sender, receiver, fwd stream, st state) {
+	m := forwardWithStateMessage{message: message{sender}, st:st, fwd:fwd}
+	send(receiver, m)
+}
+
 /*
 func sendClose(ch chan stateMsg) {
 	ch <- stateMsg{done: true}
@@ -147,6 +158,9 @@ func takeAll(str stream) []state {
 		case closeMessage:
 			done <- true
 			return
+		case forwardWithStateMessage:
+			states = append(states, t.st)
+			str = t.fwd
 		}
 		request(out, str, false)
 		registerReceive(out, takeFn)
@@ -173,8 +187,12 @@ func takeN(n int, str stream) []state {
 		case closeMessage:
 			done <- true
 			return
+		case forwardWithStateMessage:
+			states = append(states, t.st)
+			str = t.fwd
 		}
 		if len(states) == n {
+			request(out, str, true)
 			done <- true
 			return
 		}

@@ -40,27 +40,45 @@ func (cf callfreshGoal) Init(str stream, st state) {
 	cf.f(v).Init(str, newstate)
 }
 
-/*
+type disjGoal struct {
+	g1, g2 goal
+}
+
 func disj(g1, g2 goal) goal {
-	return func(st state) stream {
-		str := newStream()
-		go mplus(str, g1(st), g2(st))
-		return str
-	}
+	return disjGoal{g1, g2}
+}
+
+func (d disjGoal) Init(str stream, st state) {
+	str1 := registerInit(d.g1, st)
+	str2 := registerInit(d.g2, st)
+	mplus(str, str1, str2)
 }
 
 func mplus(str, str1, str2 stream) {
-	req := <-str.req
-	if req.done {
-		sendDone(str1.req)
-		sendDone(str2.req)
-		str.close()
-		return
-	}
-	mplus_(req.onto, str, str1, str2)
+	registerRequest(str, func(sender stream, done bool) {
+		if done {
+			request(str, str1, true) // close
+			request(str, str2, true) // close
+			return
+		}
+		mplus_(sender, str, str1, str2)
+	})
 }
 
-func mplus_(req chan stateMsg, str, str1, str2 stream) {
+func mplus_(sender, str, str1, str2 stream) {
+	request(str, str1, false)
+	registerReceive(str, func(msg Message) {
+		switch t := msg.(type) {
+		case stateMessage:
+			sendState(str, sender, t.st)
+			mplus(str, str2, str1)
+		case stateCloseMessage:
+			sendForwardWithState(str, sender, str2, t.st)
+			return
+		}
+	})
+
+/*
 	str.request(str1)
 	rec, ok := <-str.rec
 	if !ok {
@@ -84,8 +102,10 @@ func mplus_(req chan stateMsg, str, str1, str2 stream) {
 	case rec.isDelay():
 		mplus_(req, str, str2, str1)
 	}
+*/
 }
 
+/*
 func conj(g1, g2 goal) goal {
 	return func(st state) stream {
 		str := newStream()

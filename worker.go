@@ -86,6 +86,9 @@ func work(ch chan struct{}, wg *sync.WaitGroup) {
 	}
 }
 
+// goal application spawns work
+// todo: does this really have to exist? cant this be done on goal creation
+// in the creating thread?
 func registerInit(g goal, st state) stream {
 	str := newStream()
 	pool.Put(initWork{
@@ -96,6 +99,7 @@ func registerInit(g goal, st state) stream {
 	return str
 }
 
+// block waiting for more requests for work
 func registerRequest(str stream, reqFn reqFn) {
 	reqMut.Lock()
 	req, ok := requests[str]
@@ -113,6 +117,8 @@ func registerRequest(str stream, reqFn reqFn) {
 	pool.Put(req)
 }
 
+// make a request for more work. suspend if no one is waiting for requests
+// this needs to be renamed. bool is used to close children as well!
 func request(sender, receiver stream, done bool) {
 	reqMut.Lock()
 	fn, ok := suspendedReq[receiver]
@@ -129,6 +135,7 @@ func request(sender, receiver stream, done bool) {
 	fn(sender, done)
 }
 
+// block waiting to receive a result
 func registerReceive(str stream, recFn receiveFn) {
 	recMut.Lock()
 	msg, ok := inbox[str]

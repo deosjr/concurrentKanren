@@ -8,6 +8,7 @@ import (
 func TestKanren(t *testing.T) {
 	//n5, n6, n7, n8 := number(5), number(6), number(7), number(8)
 	n5 := number(5)
+	n6 := number(6)
 	for i, tt := range []struct {
 		goal goal
 		take int
@@ -19,20 +20,20 @@ func TestKanren(t *testing.T) {
 			}),
 			want: []expression{n5},
 		},
-			{
-				goal: callfresh(func(q expression) goal {
-					return equalo(q, n5)
-				}),
-				take: 3,
-				want: []expression{n5},
-			},
+		{
+			goal: callfresh(func(q expression) goal {
+				return equalo(q, n5)
+			}),
+			take: 3,
+			want: []expression{n5},
+		},
+		{
+			goal: callfresh(func(q expression) goal {
+				return disj(equalo(q, n5), equalo(q, n6))
+			}),
+			want: []expression{n5, n6},
+		},
 		/*
-			{
-				goal: callfresh(func(q expression) goal {
-					return disj(equalo(q, n5), equalo(q, n6))
-				}),
-				want: []expression{n5, n6},
-			},
 			{
 				goal: callfresh(func(x expression) goal {
 					return fives(x)
