@@ -79,40 +79,41 @@ func TestKanren(t *testing.T) {
 				take: 9,
 				want: []expression{n5, n6, n7, n5, n6, n7, n5, n6, n7},
 			},
+		*/
+		{
+			goal: fresh2(func(x, y expression) goal {
+				return conj(equalo(x, n5), equalo(y, n6))
+			}),
+			want: []expression{n5},
+		},
+		{
+			goal: fresh3(func(q, x, y expression) goal {
+				return conj(
+					equalo(q, pair{x, y}),
+					conj(equalo(x, n5), equalo(y, n6)),
+				)
+			}),
+			want: []expression{pair{n5, n6}},
+		},
+		{
+			goal: equalo(n5, n6),
+			want: []expression{},
+		},
+		/*
+			{
+				goal: conj_sce(equalo(n5, n6), nevero()),
+				want: []expression{},
+			},
+			{
+				goal: conj_sce(nevero(), equalo(n5, n6)),
+				want: []expression{},
+			},
 			{
 				goal: fresh2(func(x, y expression) goal {
-					return conj(equalo(x, n5), equalo(y, n6))
+					return conj_sce(equalo(y, n5), equalo(x, y))
 				}),
 				want: []expression{n5},
 			},
-			{
-				goal: fresh3(func(q, x, y expression) goal {
-					return conj(
-						equalo(q, pair{x, y}),
-						conj(equalo(x, n5), equalo(y, n6)),
-					)
-				}),
-				want: []expression{pair{n5, n6}},
-			},
-			{
-				goal: equalo(n5, n6),
-				want: []expression{},
-			},
-			/*
-				{
-					goal: conj_sce(equalo(n5, n6), nevero()),
-					want: []expression{},
-				},
-				{
-					goal: conj_sce(nevero(), equalo(n5, n6)),
-					want: []expression{},
-				},
-				{
-					goal: fresh2(func(x, y expression) goal {
-						return conj_sce(equalo(y, n5), equalo(x, y))
-					}),
-					want: []expression{n5},
-				},
 		*/
 		{
 			goal: callfresh(func(x expression) goal {

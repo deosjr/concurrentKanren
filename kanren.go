@@ -85,95 +85,57 @@ func mplus_(sender, str, str1, str2 stream) {
 			mplus_(sender, str, str2, str1)
 		}
 	})
-
-	/*
-	   str.request(str1)
-	   rec, ok := <-str.rec
-
-	   	if !ok {
-	   		panic("mplus tried to read from closed channel")
-	   	}
-
-	   switch {
-	   case rec.isState():
-
-	   	sendState(req, rec.st)
-	   	mplus(str, str2, str1)
-
-	   case rec.isStateAndClose():
-
-	   	sendForwardWithState(req, str2, rec.st)
-	   	str.close()
-
-	   case rec.isClose():
-
-	   	sendForward(req, str2)
-	   	str.close()
-
-	   case rec.isForward():
-
-	   	mplus_(req, str, rec.fwd, str2)
-
-	   case rec.isForwardWithState():
-
-	   	sendState(req, rec.st)
-	   	mplus(str, str2, rec.fwd)
-
-	   case rec.isDelay():
-
-	   		mplus_(req, str, str2, str1)
-	   	}
-	*/
 }
 
-/*
+type conjGoal struct {
+	g1, g2 goal
+}
+
 func conj(g1, g2 goal) goal {
-	return func(st state) stream {
-		str := newStream()
-		go bind(str, g1(st), g2)
-		return str
-	}
+	return conjGoal{g1, g2}
+}
+
+func (c conjGoal) Init(str stream, st state) {
+	str1 := registerInit(c.g1, st)
+	bind(str, str1, c.g2)
 }
 
 func bind(str, str1 stream, g goal) {
-	req := <-str.req
-	if req.done {
-		sendDone(str1.req)
-		str.close()
-		return
-	}
-	bind_(req.onto, str, str1, g)
+	registerRequest(str, func(sender stream, done bool) {
+		if done {
+			request(str, str1, true) // close
+			return
+		}
+		bind_(sender, str, str1, g)
+	})
 }
 
-func bind_(req chan stateMsg, str, str1 stream, g goal) {
-	str.request(str1)
-	rec, ok := <-str.rec
-	if !ok {
-		panic("bind tried to read from closed channel")
-	}
-	switch {
-	case rec.isState():
-		bstr := newStream()
-		go bind(bstr, str1, g)
-		mplus_(req, str, g(rec.st), bstr)
-	case rec.isStateAndClose():
-		s := g(rec.st)
-		sendForward(req, s)
-		str.close()
-	case rec.isClose():
-		sendClose(req)
-		str.close()
-	case rec.isForward():
-		bind_(req, str, rec.fwd, g)
-	case rec.isForwardWithState():
-		bstr := newStream()
-		go bind(bstr, rec.fwd, g)
-		mplus_(req, str, g(rec.st), bstr)
-	case rec.isDelay():
-		bind_(req, str, str1, g)
-	}
+func bind_(sender, str, str1 stream, g goal) {
+	request(str, str1, false)
+	registerReceive(str, func(msg Message) {
+		switch t := msg.(type) {
+		case stateMessage:
+			bstr := newStream()
+			bind(bstr, str1, g)
+			conjStr := registerInit(g, t.st)
+			mplus_(sender, str, conjStr, bstr)
+		case stateCloseMessage:
+			conjStr := registerInit(g, t.st)
+			sendForward(str, sender, conjStr)
+		case closeMessage:
+			sendClose(str, sender)
+		case forwardMessage:
+			bind_(sender, str, t.fwd, g)
+		case forwardWithStateMessage:
+			bstr := newStream()
+			bind(bstr, t.fwd, g)
+			conjStr := registerInit(g, t.st)
+			mplus_(sender, str, conjStr, bstr)
+		case delayMessage:
+			bind_(sender, str, str1, g)
+		}
+	})
 }
-*/
 
 func disj_plus(goals ...goal) goal {
 	if len(goals) == 1 {
@@ -182,20 +144,17 @@ func disj_plus(goals ...goal) goal {
 	return disj(goals[0], disj_plus(goals[1:]...))
 }
 
-/*
 func conj_plus(goals ...goal) goal {
 	if len(goals) == 1 {
 		return goals[0]
 	}
 	return conj(goals[0], conj_plus(goals[1:]...))
 }
-*/
 
 func run(goals ...goal) []expression {
-	//g := conj_plus(goals...)
-	g := goals[0]
-	stream := registerInit(g, emptystate)
 	wg := startWorkers()
+	g := conj_plus(goals...)
+	stream := registerInit(g, emptystate)
 	out := mKreify(takeAll(stream))
 	awaitWorkers(wg)
 	return out
@@ -203,9 +162,9 @@ func run(goals ...goal) []expression {
 
 func runN(n int, goals ...goal) []expression {
 	wg := startWorkers()
-	//g := conj_plus(goals...)
-	g := goals[0]
-	out := mKreify(takeN(n, registerInit(g, emptystate)))
+	g := conj_plus(goals...)
+	stream := registerInit(g, emptystate)
+	out := mKreify(takeN(n, stream))
 	awaitWorkers(wg)
 	return out
 }
@@ -221,45 +180,41 @@ func mKreify(states []state) []expression {
 // missing macros here. go:generate could be used perhaps
 // for now we duplicate the implementation of callfresh
 
-/*
-func fresh1(f func(expression) goal) goal {
-	return func(st state) stream {
-		x := variable(st.vc)
-		newstate := state{sub: st.sub, vc: st.vc + 1}
-		return f(x)(newstate)
-	}
+type fresh1Goal struct {
+	f func(expression) goal
+}
+func fresh1(f func(x expression) goal) goal {
+	return fresh1Goal{f}
+}
+func (f fresh1Goal) Init(str stream, st state) {
+	x := variable(st.vc)
+	newstate := state{sub: st.sub, vc: st.vc + 1}
+	f.f(x).Init(str, newstate)
 }
 
-func fresh2(f func(expression, expression) goal) goal {
-	return func(st state) stream {
-		x := variable(st.vc)
-		y := variable(st.vc + 1)
-		newstate := state{sub: st.sub, vc: st.vc + 2}
-		return f(x, y)(newstate)
-	}
+type fresh2Goal struct {
+	f func(expression, expression) goal
+}
+func fresh2(f func(x, y expression) goal) goal {
+	return fresh2Goal{f}
+}
+func (f fresh2Goal) Init(str stream, st state) {
+	x := variable(st.vc)
+	y := variable(st.vc + 1)
+	newstate := state{sub: st.sub, vc: st.vc + 2}
+	f.f(x, y).Init(str, newstate)
 }
 
-func fresh3(f func(expression, expression, expression) goal) goal {
-	return func(st state) stream {
-		x := variable(st.vc)
-		y := variable(st.vc + 1)
-		z := variable(st.vc + 2)
-		newstate := state{sub: st.sub, vc: st.vc + 3}
-		return f(x, y, z)(newstate)
-	}
+type fresh3Goal struct {
+	f func(expression, expression, expression) goal
 }
-
-func fresh7(f func(expression, expression, expression, expression, expression, expression, expression) goal) goal {
-	return func(st state) stream {
-		x1 := variable(st.vc)
-		x2 := variable(st.vc + 1)
-		x3 := variable(st.vc + 2)
-		x4 := variable(st.vc + 3)
-		x5 := variable(st.vc + 4)
-		x6 := variable(st.vc + 5)
-		x7 := variable(st.vc + 6)
-		newstate := state{sub: st.sub, vc: st.vc + 7}
-		return f(x1, x2, x3, x4, x5, x6, x7)(newstate)
-	}
+func fresh3(f func(x, y, z expression) goal) goal {
+	return fresh3Goal{f}
 }
-*/
+func (f fresh3Goal) Init(str stream, st state) {
+	x := variable(st.vc)
+	y := variable(st.vc + 1)
+	z := variable(st.vc + 2)
+	newstate := state{sub: st.sub, vc: st.vc + 3}
+	f.f(x, y, z).Init(str, newstate)
+}
