@@ -60,6 +60,17 @@ func refillBufferN(str stream, streams []stream, i int, buffer []state, active [
 			mplusplusWithBuffer(str, buffer, nil)
 			return
 		}
+		if len(active) == 1 && len(buffer) == 0 {
+			registerRequest(str, func(sender stream, done bool) {
+				if done {
+					request(str, active[0], true) // close
+					return
+				}
+				sendForward(str, sender, active[0])
+				return
+			})
+			return
+		}
 		if len(buffer) == 0 {
 			refillBuffer(str, active)
 			return
