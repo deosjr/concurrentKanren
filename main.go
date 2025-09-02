@@ -29,12 +29,17 @@ func main() {
 		}))
 		fmt.Println(out)
 	*/
-	// actual heavy goal to benchmark concurrency with
-	out := run(fresh3(func(q, x, y expression) goal {
-		return conj(
-			equalo(q, list(x, y)),
-			plusO(x, y, buildNum(10000)),
-		)
-	}))
-	fmt.Println(len(out))
+	/*
+		// actual heavy goal to benchmark concurrency with
+		out := run(fresh3(func(q, x, y expression) goal {
+			return conj(
+				equalo(q, list(x, y)),
+				plusO(x, y, buildNum(10000)),
+			)
+		}))
+		fmt.Println(len(out))
+	*/
+	out := run(conj_sce(equalo(number(5), number(6)), nevero()))
+	//out := run(conj_sce(nevero(), equalo(number(5), number(6))))
+	fmt.Println(out)
 }

@@ -20,7 +20,7 @@ type reqFn func(sender stream, done bool)
 type receiveFn func(msg message)
 
 type message struct {
-	//sender  stream
+	sender  stream
 	msgtype msgtype
 	st      state
 	fwd     stream
@@ -38,32 +38,32 @@ const (
 )
 
 func sendState(sender, receiver stream, st state) {
-	m := message{msgtype: stateMessage, st: st}
+	m := message{sender: sender, msgtype: stateMessage, st: st}
 	send(receiver, m)
 }
 
 func sendStateAndClose(sender, receiver stream, st state) {
-	m := message{msgtype: stateCloseMessage, st: st}
+	m := message{sender: sender, msgtype: stateCloseMessage, st: st}
 	send(receiver, m)
 }
 
 func sendClose(sender, receiver stream) {
-	m := message{msgtype: closeMessage}
+	m := message{sender: sender, msgtype: closeMessage}
 	send(receiver, m)
 }
 
 func sendForward(sender, receiver, fwd stream) {
-	m := message{msgtype: forwardMessage, fwd: fwd}
+	m := message{sender: sender, msgtype: forwardMessage, fwd: fwd}
 	send(receiver, m)
 }
 
 func sendForwardWithState(sender, receiver, fwd stream, st state) {
-	m := message{msgtype: forwardWithStateMessage, fwd: fwd, st: st}
+	m := message{sender: sender, msgtype: forwardWithStateMessage, fwd: fwd, st: st}
 	send(receiver, m)
 }
 
 func sendDelay(sender, receiver stream) {
-	m := message{msgtype: delayMessage}
+	m := message{sender: sender, msgtype: delayMessage}
 	send(receiver, m)
 }
 

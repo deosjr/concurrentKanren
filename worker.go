@@ -30,7 +30,7 @@ var (
 	recMut       sync.Mutex
 	requests     = map[stream]requestWork{}
 	suspendedReq = map[stream]reqFn{}
-	inbox        = map[stream]message{}
+	inbox        = map[stream][]message{}
 	suspendedRec = map[stream]receiveFn{}
 	q            = []any{}
 	qMut         sync.Mutex
@@ -71,6 +71,9 @@ func awaitWorkers(wg *sync.WaitGroup) {
 func work(ch chan struct{}, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
+		if testDone {
+			break
+		}
 		var w any
 		var ok bool
 		qMut.Lock()
@@ -132,9 +135,15 @@ func request(sender, receiver stream, done bool) {
 // block waiting to receive a result
 func registerReceive(str stream, recFn receiveFn) {
 	recMut.Lock()
-	msg, ok := inbox[str]
+	var msg message
+	msgs, ok := inbox[str]
 	if ok {
-		delete(inbox, str)
+		msg = msgs[0]
+		if len(msgs) == 1 {
+			delete(inbox, str)
+		} else {
+			msgs = msgs[1:]
+		}
 	} else {
 		suspendedRec[str] = recFn
 	}
@@ -151,15 +160,13 @@ func registerReceive(str stream, recFn receiveFn) {
 	qMut.Unlock()
 }
 
-// guarantee: there will not be another message still waiting to be received
-// because we only send upon request
 func send(receiver stream, msg message) {
 	recMut.Lock()
 	fn, ok := suspendedRec[receiver]
 	if ok {
 		delete(suspendedRec, receiver)
 	} else {
-		inbox[receiver] = msg
+		inbox[receiver] = append(inbox[receiver], msg)
 	}
 	recMut.Unlock()
 	if !ok {
