@@ -142,7 +142,7 @@ func registerReceive(str stream, recFn receiveFn) {
 		if len(msgs) == 1 {
 			delete(inbox, str)
 		} else {
-			msgs = msgs[1:]
+			inbox[str] = msgs[1:]
 		}
 	} else {
 		suspendedRec[str] = recFn
