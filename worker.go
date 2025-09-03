@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"sync"
 )
 
@@ -36,43 +37,24 @@ var (
 	qMut         sync.Mutex
 )
 
-func startWorkers() *sync.WaitGroup {
-	testDone = false
-	var wg sync.WaitGroup
-	wg.Add(1)
-	ch := make(chan struct{}, numWorkers)
+func startWorkers() context.CancelFunc {
+	ctx, cancel := context.WithCancel(context.Background())
+	ch := make(chan any, numWorkers)
 	for range numWorkers {
-		ch <- struct{}{}
+		go work(ch)
 	}
-	go manageWorkers(ch, &wg)
-	return &wg
+	go manageWorkers(ctx, ch)
+	return cancel 
 }
 
-func manageWorkers(ch chan struct{}, wg *sync.WaitGroup) {
+// todo: q as internal buffer, workers push to a channel
+func manageWorkers(ctx context.Context, ch chan any) {
 	for {
-		<-ch
-		if testDone {
-			break
-		}
-		wg.Add(1)
-		go work(ch, wg)
-	}
-}
-
-// todo: replace by context?
-var testDone bool
-
-func awaitWorkers(wg *sync.WaitGroup) {
-	testDone = true
-	wg.Done()
-	wg.Wait()
-}
-
-func work(ch chan struct{}, wg *sync.WaitGroup) {
-	defer wg.Done()
-	for {
-		if testDone {
-			break
+		select {
+		case <-ctx.Done():
+			close(ch)
+			return
+		default:
 		}
 		var w any
 		var ok bool
@@ -83,10 +65,14 @@ func work(ch chan struct{}, wg *sync.WaitGroup) {
 			ok = true
 		}
 		qMut.Unlock()
-		if !ok {
-			ch <- struct{}{}
-			return
+		if ok {
+			ch <- w
 		}
+	}
+}
+
+func work(ch chan any) {
+	for w := range ch {
 		switch t := w.(type) {
 		case requestWork:
 			t.fn(t.sender, t.done)

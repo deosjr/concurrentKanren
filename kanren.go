@@ -158,20 +158,20 @@ func conj_plus(goals ...goal) goal {
 }
 
 func run(goals ...goal) []expression {
-	wg := startWorkers()
+	cancel := startWorkers()
 	g := conj_plus(goals...)
 	stream := g.Apply(emptystate)
 	out := mKreify(takeAll(stream))
-	awaitWorkers(wg)
+	cancel()
 	return out
 }
 
 func runN(n int, goals ...goal) []expression {
-	wg := startWorkers()
+	cancel := startWorkers()
 	g := conj_plus(goals...)
 	stream := g.Apply(emptystate)
 	out := mKreify(takeN(n, stream))
-	awaitWorkers(wg)
+	cancel()
 	return out
 }
 
