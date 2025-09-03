@@ -23,7 +23,7 @@ type receiveWork struct {
 }
 
 const (
-	numWorkers = 10
+	numWorkers = 4
 )
 
 var (
@@ -38,8 +38,8 @@ var (
 
 func startWorkers() context.CancelFunc {
 	ctx, cancel := context.WithCancel(context.Background())
-	in := make(chan any, numWorkers)
-	out = make(chan any, numWorkers)
+	in := make(chan any, numWorkers * 10000)
+	out = make(chan any, numWorkers * 10000)
 	for range numWorkers {
 		go work(in)
 	}
