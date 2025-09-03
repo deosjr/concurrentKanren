@@ -24,19 +24,29 @@ type receiveWork struct {
 
 const (
 	numWorkers = 4
+	mutexShards = 100
 )
 
 var (
-	reqMut       sync.Mutex
-	recMut       sync.Mutex
-	requests     = map[stream]requestWork{}
-	suspendedReq = map[stream]reqFn{}
-	inbox        = map[stream][]message{}
-	suspendedRec = map[stream]receiveFn{}
+	reqMuts      = map[int]*sync.Mutex{}
+	recMuts      = map[int]*sync.Mutex{}
+	requests     = map[int]map[stream]requestWork{}
+	suspendedReq = map[int]map[stream]reqFn{}
+	inbox        = map[int]map[stream][]message{}
+	suspendedRec = map[int]map[stream]receiveFn{}
 	out chan any
 )
 
 func startWorkers() context.CancelFunc {
+	for i:=0; i<mutexShards; i++ {
+		// shard by hash: modulo mutexShards
+		reqMuts[i] = &sync.Mutex{}
+		recMuts[i] = &sync.Mutex{}
+		requests[i] = map[stream]requestWork{}
+		suspendedReq[i] = map[stream]reqFn{}
+		inbox[i] = map[stream][]message{}
+		suspendedRec[i] = map[stream]receiveFn{}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	in := make(chan any, numWorkers * 10000)
 	out = make(chan any, numWorkers * 10000)
@@ -86,14 +96,15 @@ func work(in chan any) {
 
 // block waiting for more requests for work
 func registerRequest(str stream, reqFn reqFn) {
-	reqMut.Lock()
-	req, ok := requests[str]
+	hash := int(str % mutexShards)
+	reqMuts[hash].Lock()
+	req, ok := requests[hash][str]
 	if ok {
-		delete(requests, str)
+		delete(requests[hash], str)
 	} else {
-		suspendedReq[str] = reqFn
+		suspendedReq[hash][str] = reqFn
 	}
-	reqMut.Unlock()
+	reqMuts[hash].Unlock()
 	if !ok {
 		return
 	}
@@ -104,14 +115,15 @@ func registerRequest(str stream, reqFn reqFn) {
 // make a request for more work. suspend if no one is waiting for requests
 // this needs to be renamed. bool is used to close children as well!
 func request(sender, receiver stream, done bool) {
-	reqMut.Lock()
-	fn, ok := suspendedReq[receiver]
+	hash := int(receiver % mutexShards)
+	reqMuts[hash].Lock()
+	fn, ok := suspendedReq[hash][receiver]
 	if ok {
-		delete(suspendedReq, receiver)
+		delete(suspendedReq[hash], receiver)
 	} else {
-		requests[receiver] = requestWork{sender: sender, done: done}
+		requests[hash][receiver] = requestWork{sender: sender, done: done}
 	}
-	reqMut.Unlock()
+	reqMuts[hash].Unlock()
 	if !ok {
 		return
 	}
@@ -120,20 +132,21 @@ func request(sender, receiver stream, done bool) {
 
 // block waiting to receive a result
 func registerReceive(str stream, recFn receiveFn) {
-	recMut.Lock()
+	hash := int(str % mutexShards)
+	recMuts[hash].Lock()
 	var msg message
-	msgs, ok := inbox[str]
+	msgs, ok := inbox[hash][str]
 	if ok {
 		msg = msgs[0]
 		if len(msgs) == 1 {
-			delete(inbox, str)
+			delete(inbox[hash], str)
 		} else {
-			inbox[str] = msgs[1:]
+			inbox[hash][str] = msgs[1:]
 		}
 	} else {
-		suspendedRec[str] = recFn
+		suspendedRec[hash][str] = recFn
 	}
-	recMut.Unlock()
+	recMuts[hash].Unlock()
 	if !ok {
 		return
 	}
@@ -145,14 +158,15 @@ func registerReceive(str stream, recFn receiveFn) {
 }
 
 func send(receiver stream, msg message) {
-	recMut.Lock()
-	fn, ok := suspendedRec[receiver]
+	hash := int(receiver % mutexShards)
+	recMuts[hash].Lock()
+	fn, ok := suspendedRec[hash][receiver]
 	if ok {
-		delete(suspendedRec, receiver)
+		delete(suspendedRec[hash], receiver)
 	} else {
-		inbox[receiver] = append(inbox[receiver], msg)
+		inbox[hash][receiver] = append(inbox[hash][receiver], msg)
 	}
-	recMut.Unlock()
+	recMuts[hash].Unlock()
 	if !ok {
 		return
 	}
