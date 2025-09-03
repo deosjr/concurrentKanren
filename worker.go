@@ -33,46 +33,48 @@ var (
 	suspendedReq = map[stream]reqFn{}
 	inbox        = map[stream][]message{}
 	suspendedRec = map[stream]receiveFn{}
-	q            = []any{}
-	qMut         sync.Mutex
+	out chan any
 )
 
 func startWorkers() context.CancelFunc {
 	ctx, cancel := context.WithCancel(context.Background())
-	ch := make(chan any, numWorkers)
+	in := make(chan any, numWorkers)
+	out = make(chan any, numWorkers)
 	for range numWorkers {
-		go work(ch)
+		go work(in)
 	}
-	go manageWorkers(ctx, ch)
+	go manageWorkers(ctx, in, out)
 	return cancel 
 }
 
-// todo: q as internal buffer, workers push to a channel
-func manageWorkers(ctx context.Context, ch chan any) {
+func manageWorkers(ctx context.Context, in, out chan any) {
+	q := []any{}
 	for {
 		select {
 		case <-ctx.Done():
-			close(ch)
+			close(in)
 			return
+		case w := <-out:
+			q = append(q, w)
 		default:
 		}
-		var w any
-		var ok bool
-		qMut.Lock()
-		if len(q) > 0 {
-			w = q[0]
-			q = q[1:]
-			ok = true
+		if len(q) == 0 {
+			continue
 		}
-		qMut.Unlock()
-		if ok {
-			ch <- w
+		w := q[0]
+		select {
+		case <-ctx.Done():
+			close(in)
+			return
+		case in<-w:
+			q = q[1:]
+		default:
 		}
 	}
 }
 
-func work(ch chan any) {
-	for w := range ch {
+func work(in chan any) {
+	for w := range in {
 		switch t := w.(type) {
 		case requestWork:
 			t.fn(t.sender, t.done)
@@ -96,9 +98,7 @@ func registerRequest(str stream, reqFn reqFn) {
 		return
 	}
 	req.fn = reqFn
-	qMut.Lock()
-	q = append(q, req)
-	qMut.Unlock()
+	out <- req
 }
 
 // make a request for more work. suspend if no one is waiting for requests
@@ -137,13 +137,11 @@ func registerReceive(str stream, recFn receiveFn) {
 	if !ok {
 		return
 	}
-	qMut.Lock()
 	rec := receiveWork{
 		msg: msg,
 		fn:  recFn,
 	}
-	q = append(q, rec)
-	qMut.Unlock()
+	out <- rec
 }
 
 func send(receiver stream, msg message) {
