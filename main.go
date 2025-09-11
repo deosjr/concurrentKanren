@@ -36,7 +36,7 @@ func main() {
 		out := run(fresh3(func(q, x, y expression) goal {
 			return conj(
 				equalo(q, list(x, y)),
-				plusO(x, y, buildNum(10000)),
+				plusO(x, y, buildNum(100000)),
 			)
 		}))
 	fmt.Println(len(out))

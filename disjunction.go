@@ -16,8 +16,8 @@ func mplusplus(str stream, buffer []state, streams []stream) {
 	if len(buffer) == 0 {
 		buffer, streams = refillBuffer(str, streams)
 	}
-	done := str.getRequest()
-	if done {
+	sender, more := str.getRequest()
+	if !more {
 		for _, s := range streams {
 			s.sendDone()
 		}
@@ -25,33 +25,32 @@ func mplusplus(str stream, buffer []state, streams []stream) {
 		return
 	}
 	if len(buffer) > 0 {
-		str.sendState(buffer[0])
+		str.sendState(sender, buffer[0])
 		mplusplus(str, buffer[1:], streams)
 		return
 	}
 	if len(streams) != 0 {
 		panic("should never happen: productive streams remain but we didn't find anything to return?")
 	}
-	str.sendClose()
+	str.sendClose(sender)
 }
 
 func refillBuffer(str stream, streams []stream) (buffer []state, active []stream) {
-	ch := make(chan bool, len(streams))
 	msgs := make([]stateMsg, len(streams))
-	for i, s := range streams {
-		s.request()
-		// NOTE: even _more_ goroutines!
-		go func(idx int) {
-			rec, ok := s.receive()
-			if !ok {
-				panic("disj_conc read on closed channel")
-			}
-			msgs[idx] = rec
-			ch<-true
-		}(i)
+	for _, s := range streams {
+		s.request(str)
 	}
 	for i:=0; i<len(streams); i++ {
-		<-ch
+		msg, ok := str.receive()
+		if !ok {
+			panic("always expect a result back")
+		}
+		for idx, s := range streams {
+			if s.inbox != msg.sender {
+				continue
+			}
+			msgs[idx] = msg
+		}
 	}
 	for i, rec := range msgs {
 		s := streams[i]
