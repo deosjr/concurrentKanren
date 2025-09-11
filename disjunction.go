@@ -36,12 +36,25 @@ func mplusplus(str stream, buffer []state, streams []stream) {
 }
 
 func refillBuffer(str stream, streams []stream) (buffer []state, active []stream) {
-	for _, s := range streams {
+	ch := make(chan bool, len(streams))
+	msgs := make([]stateMsg, len(streams))
+	for i, s := range streams {
 		s.request()
-		rec, ok := s.receive()
-		if !ok {
-			panic("disj_conc read on closed channel")
-		}
+		// NOTE: even _more_ goroutines!
+		go func(idx int) {
+			rec, ok := s.receive()
+			if !ok {
+				panic("disj_conc read on closed channel")
+			}
+			msgs[idx] = rec
+			ch<-true
+		}(i)
+	}
+	for i:=0; i<len(streams); i++ {
+		<-ch
+	}
+	for i, rec := range msgs {
+		s := streams[i]
 		switch {
 		case rec.isState():
 			buffer = append(buffer, rec.st)

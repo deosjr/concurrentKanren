@@ -33,27 +33,11 @@ func testList(length int) expression {
 }
 
 func main() {
-	/*
-		out := run(fresh1(func(x expression) goal {
-			return disj(equalo(x, number(5)), equalo(x, number(6)))
-		}))
-		fmt.Println(out)
-	*/
-	// actual heavy goal to benchmark concurrency with
-	/*
 		out := run(fresh3(func(q, x, y expression) goal {
 			return conj(
 				equalo(q, list(x, y)),
 				plusO(x, y, buildNum(10000)),
 			)
 		}))
-	*/
-		out := run(fresh3(func(q, x, y expression) goal {
-			return conj(
-				equalo(q, list(x, y)),
-				timesO(x, y, buildNum(6)),
-			)
-		}))
-	fmt.Println(out)
-	//fmt.Println(len(out))
+	fmt.Println(len(out))
 }
