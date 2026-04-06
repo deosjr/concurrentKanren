@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"runtime"
 	"sync"
 )
 
@@ -23,7 +24,6 @@ type receiveWork struct {
 }
 
 const (
-	numWorkers  = 4
 	mutexShards = 100
 )
 
@@ -34,8 +34,49 @@ var (
 	suspendedReq = map[int]map[stream]reqFn{}
 	inbox        = map[int]map[stream][]message{}
 	suspendedRec = map[int]map[stream]receiveFn{}
-	out          chan any
+	globalQueue  *workQueue
 )
+
+type workQueue struct {
+	mu     sync.Mutex
+	cond   *sync.Cond
+	items  []any
+	closed bool
+}
+
+func newWorkQueue() *workQueue {
+	q := &workQueue{}
+	q.cond = sync.NewCond(&q.mu)
+	return q
+}
+
+func (q *workQueue) push(item any) {
+	q.mu.Lock()
+	q.items = append(q.items, item)
+	q.cond.Signal()
+	q.mu.Unlock()
+}
+
+func (q *workQueue) pop() (any, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for len(q.items) == 0 && !q.closed {
+		q.cond.Wait()
+	}
+	if q.closed {
+		return nil, false
+	}
+	item := q.items[0]
+	q.items = q.items[1:]
+	return item, true
+}
+
+func (q *workQueue) close() {
+	q.mu.Lock()
+	q.closed = true
+	q.cond.Broadcast()
+	q.mu.Unlock()
+}
 
 func startWorkers() context.CancelFunc {
 	for i := 0; i < mutexShards; i++ {
@@ -47,42 +88,31 @@ func startWorkers() context.CancelFunc {
 		inbox[i] = map[stream][]message{}
 		suspendedRec[i] = map[stream]receiveFn{}
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	in := make(chan any, numWorkers*10000)
-	out = make(chan any, numWorkers*10000)
+	q := newWorkQueue()
+	globalQueue = q
+	numWorkers := runtime.GOMAXPROCS(0)
+	var wg sync.WaitGroup
 	for range numWorkers {
-		go work(in)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			work(q)
+		}()
 	}
-	go manageWorkers(ctx, in, out)
-	return cancel
+	_, cancel := context.WithCancel(context.Background())
+	return func() {
+		q.close()
+		wg.Wait()
+		cancel()
+	}
 }
 
-func manageWorkers(ctx context.Context, in, out chan any) {
-	q := []any{}
+func work(q *workQueue) {
 	for {
-		select {
-		case <-ctx.Done():
-			close(in)
+		w, ok := q.pop()
+		if !ok {
 			return
-		case w := <-out:
-			q = append(q, w)
 		}
-		if len(q) == 0 {
-			continue
-		}
-		w := q[0]
-		select {
-		case <-ctx.Done():
-			close(in)
-			return
-		case in <- w:
-			q = q[1:]
-		}
-	}
-}
-
-func work(in chan any) {
-	for w := range in {
 		switch t := w.(type) {
 		case requestWork:
 			t.fn(t.sender, t.done)
@@ -107,7 +137,7 @@ func registerRequest(str stream, reqFn reqFn) {
 		return
 	}
 	req.fn = reqFn
-	out <- req
+	globalQueue.push(req)
 }
 
 // make a request for more work. suspend if no one is waiting for requests
@@ -148,11 +178,7 @@ func registerReceive(str stream, recFn receiveFn) {
 	if !ok {
 		return
 	}
-	rec := receiveWork{
-		msg: msg,
-		fn:  recFn,
-	}
-	out <- rec
+	globalQueue.push(receiveWork{msg: msg, fn: recFn})
 }
 
 func send(receiver stream, msg message) {
