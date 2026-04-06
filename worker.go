@@ -27,21 +27,33 @@ const (
 	mutexShards = 100
 )
 
+// Arrays instead of maps: shard index is always 0..mutexShards-1,
+// so direct array access is faster (no hash, no pointer chase, no GC overhead).
 var (
-	reqMuts      = map[int]*sync.Mutex{}
-	recMuts      = map[int]*sync.Mutex{}
-	requests     = map[int]map[stream]requestWork{}
-	suspendedReq = map[int]map[stream]reqFn{}
-	inbox        = map[int]map[stream][]message{}
-	suspendedRec = map[int]map[stream]receiveFn{}
+	reqMuts      [mutexShards]sync.Mutex
+	recMuts      [mutexShards]sync.Mutex
+	requests     [mutexShards]map[stream]requestWork
+	suspendedReq [mutexShards]map[stream]reqFn
+	// inbox stores the first pending message per stream as a value (no heap
+	// allocation for the message itself). Zero sender indicates "no message".
+	// Streams start at 1, so sender==0 is a reliable absent sentinel.
+	inbox     [mutexShards]map[stream]message
+	// inboxFull holds additional messages for streams that accumulate >1
+	// before being consumed. Only conj_sce triggers this (rare).
+	inboxFull    [mutexShards]map[stream][]message
+	suspendedRec [mutexShards]map[stream]receiveFn
 	globalQueue  *workQueue
 )
 
+// workQueue holds two typed slices behind a single mutex+cond.
+// Storing requestWork and receiveWork by value (not as interface{})
+// avoids the per-item heap allocation that any-boxing would require.
 type workQueue struct {
-	mu     sync.Mutex
-	cond   *sync.Cond
-	items  []any
-	closed bool
+	mu       sync.Mutex
+	cond     *sync.Cond
+	reqItems []requestWork
+	recItems []receiveWork
+	closed   bool
 }
 
 func newWorkQueue() *workQueue {
@@ -50,25 +62,45 @@ func newWorkQueue() *workQueue {
 	return q
 }
 
-func (q *workQueue) push(item any) {
+func (q *workQueue) pushReq(w requestWork) {
 	q.mu.Lock()
-	q.items = append(q.items, item)
+	q.reqItems = append(q.reqItems, w)
 	q.cond.Signal()
 	q.mu.Unlock()
 }
 
-func (q *workQueue) pop() (any, bool) {
+func (q *workQueue) pushRec(w receiveWork) {
+	q.mu.Lock()
+	q.recItems = append(q.recItems, w)
+	q.cond.Signal()
+	q.mu.Unlock()
+}
+
+// pop returns the next work item. isReq distinguishes which kind was returned.
+// Items are popped LIFO (from the end) so that the backing array can be
+// properly truncated: old elements fall off the slice and their closure
+// references become reclaimable by the GC immediately.
+func (q *workQueue) pop() (isReq bool, req requestWork, rec receiveWork, ok bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	for len(q.items) == 0 && !q.closed {
+	for len(q.reqItems) == 0 && len(q.recItems) == 0 && !q.closed {
 		q.cond.Wait()
 	}
 	if q.closed {
-		return nil, false
+		return false, req, rec, false
 	}
-	item := q.items[0]
-	q.items = q.items[1:]
-	return item, true
+	if len(q.reqItems) > 0 {
+		n := len(q.reqItems) - 1
+		req = q.reqItems[n]
+		q.reqItems[n] = requestWork{} // zero to release the fn closure reference
+		q.reqItems = q.reqItems[:n]
+		return true, req, rec, true
+	}
+	n := len(q.recItems) - 1
+	rec = q.recItems[n]
+	q.recItems[n] = receiveWork{} // zero to release the fn closure reference
+	q.recItems = q.recItems[:n]
+	return false, req, rec, true
 }
 
 func (q *workQueue) close() {
@@ -79,14 +111,22 @@ func (q *workQueue) close() {
 }
 
 func startWorkers() context.CancelFunc {
+	// Clear or initialise per-shard maps. After the first call the maps already
+	// exist; clearing them is cheaper than allocating fresh ones each iteration.
 	for i := 0; i < mutexShards; i++ {
-		// shard by hash: modulo mutexShards
-		reqMuts[i] = &sync.Mutex{}
-		recMuts[i] = &sync.Mutex{}
-		requests[i] = map[stream]requestWork{}
-		suspendedReq[i] = map[stream]reqFn{}
-		inbox[i] = map[stream][]message{}
-		suspendedRec[i] = map[stream]receiveFn{}
+		if requests[i] == nil {
+			requests[i] = map[stream]requestWork{}
+			suspendedReq[i] = map[stream]reqFn{}
+			inbox[i] = map[stream]message{}
+			inboxFull[i] = map[stream][]message{}
+			suspendedRec[i] = map[stream]receiveFn{}
+		} else {
+			clear(requests[i])
+			clear(suspendedReq[i])
+			clear(inbox[i])
+			clear(inboxFull[i])
+			clear(suspendedRec[i])
+		}
 	}
 	q := newWorkQueue()
 	globalQueue = q
@@ -109,39 +149,37 @@ func startWorkers() context.CancelFunc {
 
 func work(q *workQueue) {
 	for {
-		w, ok := q.pop()
+		isReq, req, rec, ok := q.pop()
 		if !ok {
 			return
 		}
-		switch t := w.(type) {
-		case requestWork:
-			t.fn(t.sender, t.done)
-		case receiveWork:
-			t.fn(t.msg)
+		if isReq {
+			req.fn(req.sender, req.done)
+		} else {
+			rec.fn(rec.msg)
 		}
 	}
 }
 
 // block waiting for more requests for work
-func registerRequest(str stream, reqFn reqFn) {
+func registerRequest(str stream, fn reqFn) {
 	hash := int(str % mutexShards)
 	reqMuts[hash].Lock()
 	req, ok := requests[hash][str]
 	if ok {
 		delete(requests[hash], str)
 	} else {
-		suspendedReq[hash][str] = reqFn
+		suspendedReq[hash][str] = fn
 	}
 	reqMuts[hash].Unlock()
 	if !ok {
 		return
 	}
-	req.fn = reqFn
-	globalQueue.push(req)
+	req.fn = fn
+	globalQueue.pushReq(req)
 }
 
 // make a request for more work. suspend if no one is waiting for requests
-// this needs to be renamed. bool is used to close children as well!
 func request(sender, receiver stream, done bool) {
 	hash := int(receiver % mutexShards)
 	reqMuts[hash].Lock()
@@ -163,22 +201,28 @@ func registerReceive(str stream, recFn receiveFn) {
 	hash := int(str % mutexShards)
 	recMuts[hash].Lock()
 	var msg message
-	msgs, ok := inbox[hash][str]
-	if ok {
-		msg = msgs[0]
-		if len(msgs) == 1 {
-			delete(inbox[hash], str)
+	first, hasFirst := inbox[hash][str]
+	if hasFirst {
+		msg = first
+		// promote the first overflow message (if any) into the primary slot
+		if extra := inboxFull[hash][str]; len(extra) > 0 {
+			inbox[hash][str] = extra[0]
+			if len(extra) == 1 {
+				delete(inboxFull[hash], str)
+			} else {
+				inboxFull[hash][str] = extra[1:]
+			}
 		} else {
-			inbox[hash][str] = msgs[1:]
+			delete(inbox[hash], str)
 		}
 	} else {
 		suspendedRec[hash][str] = recFn
 	}
 	recMuts[hash].Unlock()
-	if !ok {
+	if !hasFirst {
 		return
 	}
-	globalQueue.push(receiveWork{msg: msg, fn: recFn})
+	globalQueue.pushRec(receiveWork{msg: msg, fn: recFn})
 }
 
 func send(receiver stream, msg message) {
@@ -187,8 +231,12 @@ func send(receiver stream, msg message) {
 	fn, ok := suspendedRec[hash][receiver]
 	if ok {
 		delete(suspendedRec[hash], receiver)
+	} else if _, hasFirst := inbox[hash][receiver]; !hasFirst {
+		// Common path: no existing message — store inline, zero allocation.
+		inbox[hash][receiver] = msg
 	} else {
-		inbox[hash][receiver] = append(inbox[hash][receiver], msg)
+		// Rare path (conj_sce): stream already has a pending message.
+		inboxFull[hash][receiver] = append(inboxFull[hash][receiver], msg)
 	}
 	recMuts[hash].Unlock()
 	if !ok {

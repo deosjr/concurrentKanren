@@ -114,15 +114,15 @@ func (n *substitution) resetHeight() {
 }
 
 func (n *substitution) Lookup(k variable) (expression, bool) {
-	if n == nil {
-		return nil, false
+	for n != nil {
+		switch {
+		case n.key > k:
+			n = n.left
+		case n.key < k:
+			n = n.right
+		default:
+			return n.value, true
+		}
 	}
-	switch {
-	case n.key > k:
-		return n.left.Lookup(k)
-	case n.key < k:
-		return n.right.Lookup(k)
-	}
-	// n.value == k
-	return n.value, true
+	return expression{}, false
 }

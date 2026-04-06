@@ -87,11 +87,11 @@ func TestKanren(t *testing.T) {
 		{
 			goal: fresh3(func(q, x, y expression) goal {
 				return conj(
-					equalo(q, pair{x, y}),
+					equalo(q, pair(x, y)),
 					conj(equalo(x, n5), equalo(y, n6)),
 				)
 			}),
-			want: []expression{pair{n5, n6}},
+			want: []expression{pair(n5, n6)},
 		},
 		{
 			goal: equalo(n5, n6),
@@ -113,7 +113,7 @@ func TestKanren(t *testing.T) {
 		},
 		{
 			goal: callfresh(func(x expression) goal {
-				return equalo(x, pair{number(1), x})
+				return equalo(x, pair(number(1), x))
 			}),
 			want: []expression{},
 		},

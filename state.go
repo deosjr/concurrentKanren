@@ -16,26 +16,22 @@ func (s *substitution) put(v variable, e expression) *substitution {
 }
 
 func (s *substitution) walk(u expression) expression {
-	uvar, ok := u.(variable)
-	if !ok {
-		return u
+	for u.kind == kindVariable {
+		e, ok := s.get(variable(u.ival))
+		if !ok {
+			return u
+		}
+		u = e
 	}
-	e, ok := s.get(uvar)
-	if !ok {
-		return u
-	}
-	return s.walk(e)
+	return u
 }
 
 func (s *substitution) walkstar(u expression) expression {
 	v := s.walk(u)
-	switch t := v.(type) {
-	case variable:
-		return t
-	case pair:
-		return pair{car: s.walkstar(t.car), cdr: s.walkstar(t.cdr)}
+	if v.kind != kindPair {
+		return v
 	}
-	return v
+	return pair(s.walkstar(v.pair.car), s.walkstar(v.pair.cdr))
 }
 
 func (s *substitution) extend(v variable, e expression) (*substitution, bool) {
@@ -51,22 +47,18 @@ func (s *substitution) unify(u, v expression) (*substitution, bool) {
 	if u0 == v0 {
 		return s, true
 	}
-	uvar, uok := u0.(variable)
-	if uok {
-		return s.extend(uvar, v0)
+	if u0.kind == kindVariable {
+		return s.extend(variable(u0.ival), v0)
 	}
-	vvar, vok := v0.(variable)
-	if vok {
-		return s.extend(vvar, u0)
+	if v0.kind == kindVariable {
+		return s.extend(variable(v0.ival), u0)
 	}
-	upair, uok := u0.(pair)
-	vpair, vok := v0.(pair)
-	if uok && vok {
-		s0, ok := s.unify(upair.car, vpair.car)
+	if u0.kind == kindPair && v0.kind == kindPair {
+		s0, ok := s.unify(u0.pair.car, v0.pair.car)
 		if !ok {
 			return nil, false
 		}
-		s1, ok := s0.unify(upair.cdr, vpair.cdr)
+		s1, ok := s0.unify(u0.pair.cdr, v0.pair.cdr)
 		if !ok {
 			return nil, false
 		}
@@ -77,12 +69,11 @@ func (s *substitution) unify(u, v expression) (*substitution, bool) {
 
 func (s *substitution) occursCheck(v variable, e expression) bool {
 	e0 := s.walk(e)
-	if evar, ok := e0.(variable); ok {
-		return v == evar
+	if e0.kind == kindVariable {
+		return v == variable(e0.ival)
 	}
-	epair, ok := e0.(pair)
-	if !ok {
+	if e0.kind != kindPair {
 		return false
 	}
-	return s.occursCheck(v, epair.car) || s.occursCheck(v, epair.cdr)
+	return s.occursCheck(v, e0.pair.car) || s.occursCheck(v, e0.pair.cdr)
 }
