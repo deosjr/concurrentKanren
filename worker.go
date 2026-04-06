@@ -23,7 +23,7 @@ type receiveWork struct {
 }
 
 const (
-	numWorkers = 4
+	numWorkers  = 4
 	mutexShards = 100
 )
 
@@ -34,11 +34,11 @@ var (
 	suspendedReq = map[int]map[stream]reqFn{}
 	inbox        = map[int]map[stream][]message{}
 	suspendedRec = map[int]map[stream]receiveFn{}
-	out chan any
+	out          chan any
 )
 
 func startWorkers() context.CancelFunc {
-	for i:=0; i<mutexShards; i++ {
+	for i := 0; i < mutexShards; i++ {
 		// shard by hash: modulo mutexShards
 		reqMuts[i] = &sync.Mutex{}
 		recMuts[i] = &sync.Mutex{}
@@ -48,13 +48,13 @@ func startWorkers() context.CancelFunc {
 		suspendedRec[i] = map[stream]receiveFn{}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	in := make(chan any, numWorkers * 10000)
-	out = make(chan any, numWorkers * 10000)
+	in := make(chan any, numWorkers*10000)
+	out = make(chan any, numWorkers*10000)
 	for range numWorkers {
 		go work(in)
 	}
 	go manageWorkers(ctx, in, out)
-	return cancel 
+	return cancel
 }
 
 func manageWorkers(ctx context.Context, in, out chan any) {
@@ -66,7 +66,6 @@ func manageWorkers(ctx context.Context, in, out chan any) {
 			return
 		case w := <-out:
 			q = append(q, w)
-		default:
 		}
 		if len(q) == 0 {
 			continue
@@ -76,9 +75,8 @@ func manageWorkers(ctx context.Context, in, out chan any) {
 		case <-ctx.Done():
 			close(in)
 			return
-		case in<-w:
+		case in <- w:
 			q = q[1:]
-		default:
 		}
 	}
 }
