@@ -22,24 +22,25 @@ func (dc disjConcGoal) Apply(st state) stream {
 }
 
 // refillState holds all the mutable context for one round of parallel stream
-// draining in disj_conc. Pooling the struct avoids a 48-byte allocation per
-// refill round, and using a method value for the registerReceive callback
-// reduces each step's closure from ~96 bytes (6 captured fields) to ~16 bytes
-// (just a pointer to the pooled struct).
+// draining in disj_conc. Pooling the struct avoids allocation per refill round;
+// recvFn holds the pre-baked method value (created once in pool.New) so that
+// each step() call passes it to registerReceive without a funcval allocation.
 type refillState struct {
 	str     stream
 	streams []stream
 	i       int
 	buffer  []state
 	active  []stream
+	recvFn  receiveFn // pre-stored method value, set once in pool.New
 }
 
-var refillStatePool = sync.Pool{
-	New: func() any { return &refillState{} },
-}
+var refillStatePool = sync.Pool{New: func() any { return &refillState{} }}
 
 func getRefillState(str stream, streams []stream) *refillState {
 	rs := refillStatePool.Get().(*refillState)
+	if rs.recvFn == nil {
+		rs.recvFn = rs.recv
+	}
 	rs.str = str
 	rs.streams = streams
 	rs.i = 0
@@ -48,7 +49,7 @@ func getRefillState(str stream, streams []stream) *refillState {
 	return rs
 }
 
-// step sends a request to the next stream and registers rs.recv to handle the
+// step sends a request to the next stream and registers rs.recvFn to handle the
 // response. When all streams have been queried (i == len(streams)), it calls
 // rs.finish to dispatch the collected buffer and active sets.
 func (rs *refillState) step() {
@@ -58,7 +59,7 @@ func (rs *refillState) step() {
 	}
 	s := rs.streams[rs.i]
 	request(rs.str, s, false)
-	registerReceive(rs.str, rs.recv) // method value: ~16-byte funcval, captures only rs ptr
+	registerReceive(rs.str, rs.recvFn) // pre-stored method value: no funcval allocation
 }
 
 // recv is called when a response arrives from streams[i].

@@ -15,13 +15,14 @@ func equalo(u, v expression) goal {
 }
 
 // equaloReqState holds the registerRequest callback state for equaloGoal.Apply.
-// Pooling avoids a ~40-byte closure allocation per equalo application; the
-// method value ers.reqFn is only 16 bytes (funcval code ptr + ers pointer).
+// Pooling avoids allocation per equalo application; fn holds the pre-baked
+// method value (created once in pool.New, reused across pool Get/Put cycles).
 type equaloReqState struct {
 	str stream
 	s   *substitution
 	vc  int
 	ok  bool
+	fn  reqFn // pre-stored method value, set once in pool.New
 }
 
 var equaloReqPool = sync.Pool{New: func() any { return &equaloReqState{} }}
@@ -44,8 +45,11 @@ func (e equaloGoal) Apply(st state) stream {
 	str := newStream()
 	s, ok := st.sub.unify(e.u, e.v)
 	ers := equaloReqPool.Get().(*equaloReqState)
+	if ers.fn == nil {
+		ers.fn = ers.reqFn // set once per pool-object lifetime, reused on every subsequent Get
+	}
 	ers.str, ers.s, ers.vc, ers.ok = str, s, st.vc, ok
-	registerRequest(str, ers.reqFn)
+	registerRequest(str, ers.fn)
 	return str
 }
 
@@ -79,37 +83,91 @@ func (d disjGoal) Apply(st state) stream {
 	return str
 }
 
+// mplusReqState holds the captured state for mplus's registerRequest callback.
+// fn is pre-stored in pool.New to avoid a funcval allocation on each mplus call.
+type mplusReqState struct {
+	str, str1, str2 stream
+	fn              reqFn
+}
+
+var mplusReqPool = sync.Pool{New: func() any { return &mplusReqState{} }}
+
+func (mrs *mplusReqState) mplusReqFn(sender stream, done bool) {
+	str, str1, str2 := mrs.str, mrs.str1, mrs.str2
+	mrs.str, mrs.str1, mrs.str2 = 0, 0, 0
+	mplusReqPool.Put(mrs)
+	if done {
+		request(str, str1, true) // close
+		request(str, str2, true) // close
+		return
+	}
+	mplus_(sender, str, str1, str2)
+}
+
 func mplus(str, str1, str2 stream) {
-	registerRequest(str, func(sender stream, done bool) {
-		if done {
-			request(str, str1, true) // close
-			request(str, str2, true) // close
-			return
-		}
-		mplus_(sender, str, str1, str2)
-	})
+	mrs := mplusReqPool.Get().(*mplusReqState)
+	if mrs.fn == nil {
+		mrs.fn = mrs.mplusReqFn
+	}
+	mrs.str, mrs.str1, mrs.str2 = str, str1, str2
+	registerRequest(str, mrs.fn)
+}
+
+// mplusRecState holds the captured state for mplus_'s registerReceive callback.
+// For forwardMessage and delayMessage (which loop), the struct is reused in-place.
+// For all terminal message types, fields are cleared and the struct returned to pool.
+type mplusRecState struct {
+	sender, str, str1, str2 stream
+	fn                      receiveFn
+}
+
+var mplusRecPool = sync.Pool{New: func() any { return &mplusRecState{} }}
+
+func (mrs *mplusRecState) mplusRecFn(msg message) {
+	switch msg.msgtype {
+	case stateMessage:
+		str, sender, str1, str2 := mrs.str, mrs.sender, mrs.str1, mrs.str2
+		mrs.sender, mrs.str, mrs.str1, mrs.str2 = 0, 0, 0, 0
+		mplusRecPool.Put(mrs)
+		sendState(str, sender, msg.st)
+		mplus(str, str2, str1)
+	case stateCloseMessage:
+		str, sender, str2 := mrs.str, mrs.sender, mrs.str2
+		mrs.sender, mrs.str, mrs.str1, mrs.str2 = 0, 0, 0, 0
+		mplusRecPool.Put(mrs)
+		sendForwardWithState(str, sender, str2, msg.st)
+	case closeMessage:
+		str, sender, str2 := mrs.str, mrs.sender, mrs.str2
+		mrs.sender, mrs.str, mrs.str1, mrs.str2 = 0, 0, 0, 0
+		mplusRecPool.Put(mrs)
+		sendForward(str, sender, str2)
+	case forwardMessage:
+		// Reuse mrs for the hop; just update str1.
+		mrs.str1 = msg.fwd
+		request(mrs.str, msg.fwd, false)
+		registerReceive(mrs.str, mrs.fn)
+	case forwardWithStateMessage:
+		str, sender, str2 := mrs.str, mrs.sender, mrs.str2
+		mrs.sender, mrs.str, mrs.str1, mrs.str2 = 0, 0, 0, 0
+		mplusRecPool.Put(mrs)
+		sendState(str, sender, msg.st)
+		mplus(str, str2, msg.fwd)
+	case delayMessage:
+		// Swap str1/str2 and retry from str1 (the new lead stream).
+		mrs.str1, mrs.str2 = mrs.str2, mrs.str1
+		request(mrs.str, mrs.str1, false)
+		registerReceive(mrs.str, mrs.fn)
+	}
 }
 
 func mplus_(sender, str, str1, str2 stream) {
+	mrs := mplusRecPool.Get().(*mplusRecState)
+	if mrs.fn == nil {
+		mrs.fn = mrs.mplusRecFn
+	}
+	mrs.sender, mrs.str, mrs.str1, mrs.str2 = sender, str, str1, str2
 	request(str, str1, false)
-	registerReceive(str, func(msg message) {
-		switch msg.msgtype {
-		case stateMessage:
-			sendState(str, sender, msg.st)
-			mplus(str, str2, str1)
-		case stateCloseMessage:
-			sendForwardWithState(str, sender, str2, msg.st)
-		case closeMessage:
-			sendForward(str, sender, str2)
-		case forwardMessage:
-			mplus_(sender, str, msg.fwd, str2)
-		case forwardWithStateMessage:
-			sendState(str, sender, msg.st)
-			mplus(str, str2, msg.fwd)
-		case delayMessage:
-			mplus_(sender, str, str2, str1)
-		}
-	})
+	registerReceive(str, mrs.fn)
 }
 
 type conjGoal struct {
@@ -128,11 +186,11 @@ func (c conjGoal) Apply(st state) stream {
 }
 
 // bindReqState holds the captured variables for the bind registerRequest callback.
-// Pooling avoids a ~40-byte heap allocation per bind call; the method value
-// bs.reqFn is only 16 bytes (funcval code ptr + bs pointer).
+// fn is pre-stored in pool.New to avoid a funcval allocation on each bind call.
 type bindReqState struct {
 	str, str1 stream
 	g         goal
+	fn        reqFn
 }
 
 var bindReqPool = sync.Pool{New: func() any { return &bindReqState{} }}
@@ -150,18 +208,21 @@ func (bs *bindReqState) reqFn(sender stream, done bool) {
 
 func bind(str, str1 stream, g goal) {
 	bs := bindReqPool.Get().(*bindReqState)
+	if bs.fn == nil {
+		bs.fn = bs.reqFn
+	}
 	bs.str, bs.str1, bs.g = str, str1, g
-	registerRequest(str, bs.reqFn)
+	registerRequest(str, bs.fn)
 }
 
 // bindRecState holds the captured variables for the bind_ registerReceive callback.
-// Pooling avoids a ~48-byte heap allocation per bind_ call; the method value
-// bs.recFn is only 16 bytes.
+// fn is pre-stored in pool.New to avoid a funcval allocation on each bind_ call.
 // The struct is returned to the pool after each terminal message type.
 // For forwardMessage and delayMessage (which loop), the same struct is reused.
 type bindRecState struct {
 	sender, str, str1 stream
 	g                 goal
+	fn                receiveFn
 }
 
 var bindRecPool = sync.Pool{New: func() any { return &bindRecState{} }}
@@ -191,7 +252,7 @@ func (bs *bindRecState) recFn(msg message) {
 		// Reuse bs for the recursive call; just update str1.
 		bs.str1 = msg.fwd
 		request(bs.str, bs.str1, false)
-		registerReceive(bs.str, bs.recFn)
+		registerReceive(bs.str, bs.fn)
 	case forwardWithStateMessage:
 		g, str, sender := bs.g, bs.str, bs.sender
 		bs.g, bs.str, bs.sender = nil, 0, 0
@@ -203,15 +264,18 @@ func (bs *bindRecState) recFn(msg message) {
 	case delayMessage:
 		// Reuse bs for the retry; str1 is unchanged.
 		request(bs.str, bs.str1, false)
-		registerReceive(bs.str, bs.recFn)
+		registerReceive(bs.str, bs.fn)
 	}
 }
 
 func bind_(sender, str, str1 stream, g goal) {
 	bs := bindRecPool.Get().(*bindRecState)
+	if bs.fn == nil {
+		bs.fn = bs.recFn
+	}
 	bs.sender, bs.str, bs.str1, bs.g = sender, str, str1, g
 	request(str, str1, false)
-	registerReceive(str, bs.recFn)
+	registerReceive(str, bs.fn)
 }
 
 func disj_plus(goals ...goal) goal {
