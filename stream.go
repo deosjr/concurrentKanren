@@ -1,7 +1,6 @@
 package main
 
 import (
-	"sync"
 	"sync/atomic"
 )
 
@@ -76,54 +75,21 @@ func delay(f func() goal) goal {
 	return delayGoal{f: f}
 }
 
-// delayApplyState holds the captured state for the two-phase delayGoal.Apply
-// callback. outerFn handles the first request (sends a delay, then arms innerFn);
-// innerFn handles the second request (evaluates the goal and forwards).
-// Both method values are pre-stored lazily on first pool use.
-type delayApplyState struct {
-	str     stream
-	d       delayGoal
-	st      state
-	outerFn reqFn
-	innerFn reqFn
-}
-
-var delayApplyPool = sync.Pool{New: func() any { return &delayApplyState{} }}
-
-func (ds *delayApplyState) outerReqFn(sender stream, done bool) {
-	if done {
-		// Stream terminated before anyone consumed the delay; clean up.
-		ds.str, ds.d, ds.st = 0, delayGoal{}, state{}
-		delayApplyPool.Put(ds)
-		return
-	}
-	sendDelay(ds.str, sender)
-	// Arm the inner handler for the follow-up request; reuse this struct.
-	if ds.innerFn == nil {
-		ds.innerFn = ds.innerReqFn
-	}
-	registerRequest(ds.str, ds.innerFn)
-}
-
-func (ds *delayApplyState) innerReqFn(sender stream, done bool) {
-	str, d, st := ds.str, ds.d, ds.st
-	ds.str, ds.d, ds.st = 0, delayGoal{}, state{}
-	delayApplyPool.Put(ds)
-	if done {
-		return
-	}
-	fwd := d.f().Apply(st)
-	sendForward(str, sender, fwd)
-}
-
 func (d delayGoal) Apply(st state) stream {
 	str := newStream()
-	ds := delayApplyPool.Get().(*delayApplyState)
-	if ds.outerFn == nil {
-		ds.outerFn = ds.outerReqFn
-	}
-	ds.str, ds.d, ds.st = str, d, st
-	registerRequest(str, ds.outerFn)
+	registerRequest(str, func(sender stream, done bool) {
+		if done {
+			return
+		}
+		sendDelay(str, sender)
+		registerRequest(str, func(sender stream, done bool) {
+			if done {
+				return
+			}
+			fwd := d.f().Apply(st)
+			sendForward(str, sender, fwd)
+		})
+	})
 	return str
 }
 
