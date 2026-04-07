@@ -6,19 +6,31 @@ It is inspired by earlier experimentation in [FLENG](https://gitlab.com/b2495/fl
 ## Model
 
 In µKanren streams are either lists or functions of zero arguments (thunks): a function signals an immature stream.
-In concurrentKanren a stream consists of an unbuffered channel and a context.
-Streams are managed by goroutines, which need to be cleaned up by context cancellation when less answers are requested than are available.
-The implementation of `run` shows what this looks like in practise:
+In concurrentKanren a stream is a lightweight coroutine ID (`int64`).
+Goals implement a single method:
+
+```go
+type goal interface {
+    Apply(st state) stream
+}
+```
+
+Work (requests and receives) is dispatched through a shared worker pool.
+Streams never block a goroutine; instead, a stream registers a callback and the worker picks up where it left off when a message arrives.
+Context cancellation is handled by closing the pool after collecting results:
 
 ```go
 func run(goals ...goal) []expression {
-    ctx, cancel := context.WithCancel(context.Background()) 
+    cancel := startWorkers()
     g := conj_plus(goals...)
-    out := mKreify(takeAll(g(ctx, emptystate)))
+    stream := g.Apply(emptystate)
+    out := mKreify(takeAll(stream))
     cancel()
     return out
 }
 ```
+
+`cancel()` closes the work queue and waits for all workers to drain, ensuring no goroutine leaks.
 
 ## Concurrent disjunction
 
@@ -65,36 +77,4 @@ fmt.Println(out)    // prints []
 
 out = run(conj_sce(nevero(), failo()))
 fmt.Println(out)    // conj diverges, conj_sce prints []
-```
-
-## Fine-grained control over subgoal evaluation
-
-Using context, we can signal early termination or set a timeout on parts of the evaluation.
-
-```go
-// modify equalo to sleep for a second, emulating a heavy goal
-slowEqualo := func(u, v expression) goal { 
-    return func(ctx context.Context, st state) stream {
-        time.Sleep(1*time.Second)
-        return equalo(u, v)(ctx, st)
-    }
-}
-
-// modify goal to give up after 100ms
-timeout100ms := func(g goal) goal {
-    return func(ctx context.Context, st state) stream {
-        ctx, _ = context.WithTimeout(ctx, 100*time.Millisecond)
-        return g(ctx, st)
-    }
-}
-
-// second goal is cancelled after 100ms and starts cleanup early
-// it might still return x=6, as select is nondeterministic
-out := run(callfresh(func(x expression) goal {
-    return disj(
-        slowEqualo(x, number(5)),
-        timeout100ms(slowEqualo(x, number(6))),
-    )
-}))
-fmt.Println(out)    // prints [5] or [5 6]
 ```

@@ -16,7 +16,7 @@ func equalo(u, v expression) goal {
 
 // equaloReqState holds the registerRequest callback state for equaloGoal.Apply.
 // Pooling avoids allocation per equalo application; fn holds the pre-baked
-// method value (created once in pool.New, reused across pool Get/Put cycles).
+// method value (set once lazily on first Get, then reused across Put/Get cycles).
 type equaloReqState struct {
 	str stream
 	s   *substitution
@@ -84,7 +84,7 @@ func (d disjGoal) Apply(st state) stream {
 }
 
 // mplusReqState holds the captured state for mplus's registerRequest callback.
-// fn is pre-stored in pool.New to avoid a funcval allocation on each mplus call.
+// fn is pre-stored (set once lazily on first Get) to avoid a funcval allocation on each mplus call.
 type mplusReqState struct {
 	str, str1, str2 stream
 	fn              reqFn
@@ -186,7 +186,7 @@ func (c conjGoal) Apply(st state) stream {
 }
 
 // bindReqState holds the captured variables for the bind registerRequest callback.
-// fn is pre-stored in pool.New to avoid a funcval allocation on each bind call.
+// fn is pre-stored (set once lazily on first Get) to avoid a funcval allocation on each bind call.
 type bindReqState struct {
 	str, str1 stream
 	g         goal
@@ -216,7 +216,7 @@ func bind(str, str1 stream, g goal) {
 }
 
 // bindRecState holds the captured variables for the bind_ registerReceive callback.
-// fn is pre-stored in pool.New to avoid a funcval allocation on each bind_ call.
+// fn is pre-stored (set once lazily on first Get) to avoid a funcval allocation on each bind_ call.
 // The struct is returned to the pool after each terminal message type.
 // For forwardMessage and delayMessage (which loop), the same struct is reused.
 type bindRecState struct {
@@ -318,8 +318,9 @@ func mKreify(states []state) []expression {
 	return exprs
 }
 
-// missing macros here. go:generate could be used perhaps
-// for now we duplicate the implementation of callfresh
+// fresh1/fresh2/fresh3/fresh7 duplicate callfresh's logic for N variables.
+// Go has no macros, so each arity is written out by hand.
+// fresh7 is needed by genAdderO in arithmetic.go; arities 4-6 are not currently used.
 
 type fresh1Goal struct {
 	f func(expression) goal

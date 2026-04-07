@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"runtime"
 	"sync"
 )
@@ -110,7 +109,7 @@ func (q *workQueue) close() {
 	q.mu.Unlock()
 }
 
-func startWorkers() context.CancelFunc {
+func startWorkers() func() {
 	// Clear or initialise per-shard maps. After the first call the maps already
 	// exist; clearing them is cheaper than allocating fresh ones each iteration.
 	for i := 0; i < mutexShards; i++ {
@@ -139,11 +138,9 @@ func startWorkers() context.CancelFunc {
 			work(q)
 		}()
 	}
-	_, cancel := context.WithCancel(context.Background())
 	return func() {
 		q.close()
 		wg.Wait()
-		cancel()
 	}
 }
 
