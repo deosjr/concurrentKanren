@@ -26,6 +26,11 @@ const (
 	mutexShards = 100
 )
 
+// synchronous, when true, makes registerRequest/registerReceive bypass the
+// work queue and invoke the callback inline. Used for benchmarking / when the
+// caller knows the goal tree has no real parallelism to exploit.
+var synchronous bool
+
 // Arrays instead of maps: shard index is always 0..mutexShards-1,
 // so direct array access is faster (no hash, no pointer chase, no GC overhead).
 var (
@@ -110,22 +115,21 @@ func (q *workQueue) close() {
 }
 
 func startWorkers() func() {
-	// Clear or initialise per-shard maps. After the first call the maps already
-	// exist; clearing them is cheaper than allocating fresh ones each iteration.
+	// Allocate fresh per-shard maps each invocation. Re-using maps via clear()
+	// races with orphan workers from a previous run that hasn't been cancelled
+	// (e.g. test timeouts, panics): they still hold the per-shard mutex and
+	// write to the maps, while clear() writes from this goroutine without the
+	// lock. Fresh maps give orphans a dead map to scribble on; we get a clean
+	// one. Cost is ~5 small map allocations per shard per run — negligible.
 	for i := 0; i < mutexShards; i++ {
-		if requests[i] == nil {
-			requests[i] = map[stream]requestWork{}
-			suspendedReq[i] = map[stream]reqFn{}
-			inbox[i] = map[stream]message{}
-			inboxFull[i] = map[stream][]message{}
-			suspendedRec[i] = map[stream]receiveFn{}
-		} else {
-			clear(requests[i])
-			clear(suspendedReq[i])
-			clear(inbox[i])
-			clear(inboxFull[i])
-			clear(suspendedRec[i])
-		}
+		requests[i] = map[stream]requestWork{}
+		suspendedReq[i] = map[stream]reqFn{}
+		inbox[i] = map[stream]message{}
+		inboxFull[i] = map[stream][]message{}
+		suspendedRec[i] = map[stream]receiveFn{}
+	}
+	if synchronous {
+		return func() {}
 	}
 	q := newWorkQueue()
 	globalQueue = q
@@ -170,6 +174,10 @@ func registerRequest(str stream, fn reqFn) {
 	}
 	reqMuts[hash].Unlock()
 	if !ok {
+		return
+	}
+	if synchronous {
+		fn(req.sender, req.done)
 		return
 	}
 	req.fn = fn
@@ -217,6 +225,10 @@ func registerReceive(str stream, recFn receiveFn) {
 	}
 	recMuts[hash].Unlock()
 	if !hasFirst {
+		return
+	}
+	if synchronous {
+		recFn(msg)
 		return
 	}
 	globalQueue.pushRec(receiveWork{msg: msg, fn: recFn})

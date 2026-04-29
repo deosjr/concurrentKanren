@@ -43,26 +43,27 @@ func TestKanren(t *testing.T) {
 				return disj(fives(x), disj(sixes(x), sevens(x)))
 			}),
 			take: 9,
-			// binary trampolining unfairness is fixed due to mplus not propagating delay upwards
-			//want: []expression{n5, n6, n5, n7, n5, n6, n5, n7, n5},
-			want: []expression{n5, n6, n7, n5, n6, n7, n5, n6, n7},
+			// Right-leaning binary disj is unfair under mplus delay propagation:
+			// deeper branches take more swap hops to surface. Use disj_conc for
+			// even round-robin fairness across N branches.
+			want: []expression{n5, n6, n7, n5, n5, n6, n7, n5, n5},
 		},
 		{
 			goal: callfresh(func(x expression) goal {
 				return disj_plus(fives(x), sixes(x), sevens(x))
 			}),
 			take: 9,
-			// binary trampolining unfairness is fixed due to mplus not propagating delay upwards
-			//want: []expression{n5, n6, n5, n7, n5, n6, n5, n7, n5},
-			want: []expression{n5, n6, n7, n5, n6, n7, n5, n6, n7},
+			// Same right-leaning unfairness as the previous case.
+			want: []expression{n5, n6, n7, n5, n5, n6, n7, n5, n5},
 		},
 		{
 			goal: callfresh(func(x expression) goal {
 				return disj_plus(fives(x), sixes(x), sevens(x), eights(x))
 			}),
 			take: 9,
-			// binary trampolining unfairness only fixed up until a certain point
-			want: []expression{n5, n6, n7, n5, n8, n6, n5, n7, n8},
+			// Right-leaning unfairness compounds with depth — leftmost branch
+			// (fives) dominates as the tree gets deeper.
+			want: []expression{n5, n6, n7, n5, n8, n5, n6, n5, n5},
 		},
 		{
 			goal: callfresh(func(x expression) goal {
@@ -116,6 +117,77 @@ func TestKanren(t *testing.T) {
 				return equalo(x, pair(number(1), x))
 			}),
 			want: []expression{},
+		},
+		// "Branchy × branchy" — same var in both: passes (downstream
+		// fails fast on x bound by upstream), so this isn't the right
+		// repro of the evalO synthesis hang.
+		{
+			goal: callfresh(func(x expression) goal {
+				return conj(fivesOrSevens(x), sixesOrSevens(x))
+			}),
+			take: 1,
+			want: []expression{n7},
+		},
+		// Closer repro: bind chain of three branchy infinite-stream goals
+		// over THREE FRESH VARS. K=1 finds answer fast.
+		{
+			goal: callfresh(func(q expression) goal {
+				return fresh3(func(x, y, z expression) goal {
+					return conj_plus(
+						equalo(q, list(x, y, z)),
+						fivesOrSevens(x),
+						sixesOrSevens(y),
+						fivesOrSevens(z),
+					)
+				})
+			}),
+			take: 1,
+			want: []expression{list(n5, n6, n5)},
+		},
+		// Outer disj_plus K=3 with recursive sub-goals wrapped in delay,
+		// matching evalO case 5's structure exactly: each recursive call
+		// wrapped in delay(func() goal { ... }).
+		{
+			goal: callfresh(func(q expression) goal {
+				return disj_plus(
+					equalo(q, n5),
+					equalo(q, n6),
+					delay(func() goal {
+						return fresh3(func(x, y, z expression) goal {
+							return conj_plus(
+								equalo(q, list(x, y, z)),
+								fivesOrSevens(x),
+								sixesOrSevens(y),
+								fivesOrSevens(z),
+							)
+						})
+					}),
+				)
+			}),
+			take: 3,
+			want: []expression{n5, n6, list(n5, n6, n5)},
+		},
+		// Same repro at K=4: probes whether the minimal pattern explodes
+		// at K=4 like evalO does.
+		{
+			goal: callfresh(func(q expression) goal {
+				return disj_plus(
+					equalo(q, n5),
+					equalo(q, n6),
+					delay(func() goal {
+						return fresh3(func(x, y, z expression) goal {
+							return conj_plus(
+								equalo(q, list(x, y, z)),
+								fivesOrSevens(x),
+								sixesOrSevens(y),
+								fivesOrSevens(z),
+							)
+						})
+					}),
+				)
+			}),
+			take: 4,
+			want: []expression{n5, n6, list(n5, n6, n5), list(n7, n6, n5)},
 		},
 	} {
 		var got []expression

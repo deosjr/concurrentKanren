@@ -36,8 +36,14 @@ type pairNode struct {
 	car, cdr expression
 }
 
-// emptylist is the empty-list sentinel.
-var emptylist = expression{kind: kindSpecial, ival: 0}
+// Special-kind reserved values. They are disjoint from any number, pair, or
+// variable a user-language program can construct, so they make good "tags"
+// for synthesis-bearing values like closures.
+var (
+	emptylist     = expression{kind: kindSpecial, ival: 0}
+	tagClosureVal = expression{kind: kindSpecial, ival: 1}
+	tagPrimVal    = expression{kind: kindSpecial, ival: 2}
+)
 
 // mkVar constructs a variable expression (no allocation).
 func mkVar(v variable) expression {
@@ -73,8 +79,13 @@ func (e expression) display() string {
 	case kindNumber:
 		return fmt.Sprintf("%d", e.ival)
 	case kindSpecial:
-		if e.ival == 0 {
+		switch e.ival {
+		case 0:
 			return "()"
+		case 1:
+			return "#<closure-tag>"
+		case 2:
+			return "#<prim-tag>"
 		}
 		panic("unknown special")
 	case kindPair:

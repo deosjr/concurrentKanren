@@ -1,8 +1,6 @@
 package main
 
-import (
-	"sync/atomic"
-)
+import "sync/atomic"
 
 var streamcounter atomic.Int64
 
@@ -96,7 +94,7 @@ func (d delayGoal) Apply(st state) stream {
 func takeAll(str stream) []state {
 	states := []state{}
 	out := newStream()
-	done := make(chan bool)
+	done := make(chan bool, 1)
 	var takeFn receiveFn
 	takeFn = func(msg message) {
 		switch msg.msgtype {
@@ -128,7 +126,7 @@ func takeAll(str stream) []state {
 func takeN(n int, str stream) []state {
 	states := []state{}
 	out := newStream()
-	done := make(chan bool)
+	done := make(chan bool, 1)
 	var takeFn receiveFn
 	takeFn = func(msg message) {
 		switch msg.msgtype {

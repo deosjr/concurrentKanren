@@ -19,8 +19,7 @@ func equalo(u, v expression) goal {
 // method value (set once lazily on first Get, then reused across Put/Get cycles).
 type equaloReqState struct {
 	str stream
-	s   *substitution
-	vc  int
+	st  state
 	ok  bool
 	fn  reqFn // pre-stored method value, set once in pool.New
 }
@@ -28,14 +27,14 @@ type equaloReqState struct {
 var equaloReqPool = sync.Pool{New: func() any { return &equaloReqState{} }}
 
 func (ers *equaloReqState) reqFn(sender stream, done bool) {
-	str, s, vc, ok := ers.str, ers.s, ers.vc, ers.ok
-	ers.str, ers.s, ers.vc, ers.ok = 0, nil, 0, false
+	str, st, ok := ers.str, ers.st, ers.ok
+	ers.str, ers.st, ers.ok = 0, state{}, false
 	equaloReqPool.Put(ers)
 	if done {
 		return
 	}
 	if ok {
-		sendStateAndClose(str, sender, state{sub: s, vc: vc})
+		sendStateAndClose(str, sender, st)
 	} else {
 		sendClose(str, sender)
 	}
@@ -44,11 +43,15 @@ func (ers *equaloReqState) reqFn(sender stream, done bool) {
 func (e equaloGoal) Apply(st state) stream {
 	str := newStream()
 	s, ok := st.sub.unify(e.u, e.v)
+	var newSt state
+	if ok {
+		newSt, ok = extendStateAndCheck(st, s)
+	}
 	ers := equaloReqPool.Get().(*equaloReqState)
 	if ers.fn == nil {
 		ers.fn = ers.reqFn // set once per pool-object lifetime, reused on every subsequent Get
 	}
-	ers.str, ers.s, ers.vc, ers.ok = str, s, st.vc, ok
+	ers.str, ers.st, ers.ok = str, newSt, ok
 	registerRequest(str, ers.fn)
 	return str
 }
@@ -63,7 +66,7 @@ func callfresh(f func(x expression) goal) goal {
 
 func (cf callfreshGoal) Apply(st state) stream {
 	v := mkVar(variable(st.vc))
-	newstate := state{sub: st.sub, vc: st.vc + 1}
+	newstate := state{sub: st.sub, vc: st.vc + 1, diseq: st.diseq, abs: st.abs}
 	return cf.f(v).Apply(newstate)
 }
 
@@ -119,6 +122,7 @@ func mplus(str, str1, str2 stream) {
 type mplusRecState struct {
 	sender, str, str1, str2 stream
 	fn                      receiveFn
+	resumeFn                reqFn
 }
 
 var mplusRecPool = sync.Pool{New: func() any { return &mplusRecState{} }}
@@ -153,17 +157,40 @@ func (mrs *mplusRecState) mplusRecFn(msg message) {
 		sendState(str, sender, msg.st)
 		mplus(str, str2, msg.fwd)
 	case delayMessage:
-		// Swap str1/str2 and retry from str1 (the new lead stream).
+		// Propagate delay upward AND swap. Mirrors Chez's
+		//   ((procedure? s) (lambda () (mplus s2 (s))))
+		// where returning a thunk surfaces the delay to the consumer, and
+		// (mplus s2 (s)) does the swap when forced.
+		str, sender := mrs.str, mrs.sender
+		mrs.sender = 0
 		mrs.str1, mrs.str2 = mrs.str2, mrs.str1
-		request(mrs.str, mrs.str1, false)
-		registerReceive(mrs.str, mrs.fn)
+		sendDelay(str, sender)
+		registerRequest(str, mrs.resumeFn)
 	}
+}
+
+// resumeReqFn is mplus's request handler after sending a delay upward. On the
+// next request from our consumer, request from the new str1 (post-swap) and
+// re-register the receive callback.
+func (mrs *mplusRecState) resumeReqFn(sender stream, done bool) {
+	str, str1, str2 := mrs.str, mrs.str1, mrs.str2
+	if done {
+		mrs.sender, mrs.str, mrs.str1, mrs.str2 = 0, 0, 0, 0
+		mplusRecPool.Put(mrs)
+		request(str, str1, true)
+		request(str, str2, true)
+		return
+	}
+	mrs.sender = sender
+	request(str, str1, false)
+	registerReceive(str, mrs.fn)
 }
 
 func mplus_(sender, str, str1, str2 stream) {
 	mrs := mplusRecPool.Get().(*mplusRecState)
 	if mrs.fn == nil {
 		mrs.fn = mrs.mplusRecFn
+		mrs.resumeFn = mrs.resumeReqFn
 	}
 	mrs.sender, mrs.str, mrs.str1, mrs.str2 = sender, str, str1, str2
 	request(str, str1, false)
@@ -223,6 +250,7 @@ type bindRecState struct {
 	sender, str, str1 stream
 	g                 goal
 	fn                receiveFn
+	resumeFn          reqFn
 }
 
 var bindRecPool = sync.Pool{New: func() any { return &bindRecState{} }}
@@ -262,16 +290,37 @@ func (bs *bindRecState) recFn(msg message) {
 		conjStr := g.Apply(msg.st)
 		mplus_(sender, str, conjStr, bstr)
 	case delayMessage:
-		// Reuse bs for the retry; str1 is unchanged.
-		request(bs.str, bs.str1, false)
-		registerReceive(bs.str, bs.fn)
+		// Propagate delay upward instead of absorbing it locally. mplus
+		// upstream gets a chance to swap. Re-arm so that on the next request
+		// from our consumer, we re-request str1 (which is mid-delay).
+		str, sender := bs.str, bs.sender
+		bs.sender = 0
+		sendDelay(str, sender)
+		registerRequest(str, bs.resumeFn)
 	}
+}
+
+// resumeReqFn is bind's request handler after sending a delay upward. When
+// the consumer sends its next request, we re-request str1 (which will now
+// move past its delay) and re-register the receive callback.
+func (bs *bindRecState) resumeReqFn(sender stream, done bool) {
+	str, str1 := bs.str, bs.str1
+	if done {
+		bs.g, bs.str, bs.str1, bs.sender = nil, 0, 0, 0
+		bindRecPool.Put(bs)
+		request(str, str1, true)
+		return
+	}
+	bs.sender = sender
+	request(str, str1, false)
+	registerReceive(str, bs.fn)
 }
 
 func bind_(sender, str, str1 stream, g goal) {
 	bs := bindRecPool.Get().(*bindRecState)
 	if bs.fn == nil {
 		bs.fn = bs.recFn
+		bs.resumeFn = bs.resumeReqFn
 	}
 	bs.sender, bs.str, bs.str1, bs.g = sender, str, str1, g
 	request(str, str1, false)
@@ -331,7 +380,7 @@ func fresh1(f func(x expression) goal) goal {
 }
 func (f fresh1Goal) Apply(st state) stream {
 	x := mkVar(variable(st.vc))
-	newstate := state{sub: st.sub, vc: st.vc + 1}
+	newstate := state{sub: st.sub, vc: st.vc + 1, diseq: st.diseq, abs: st.abs}
 	return f.f(x).Apply(newstate)
 }
 
@@ -345,7 +394,7 @@ func fresh2(f func(x, y expression) goal) goal {
 func (f fresh2Goal) Apply(st state) stream {
 	x := mkVar(variable(st.vc))
 	y := mkVar(variable(st.vc + 1))
-	newstate := state{sub: st.sub, vc: st.vc + 2}
+	newstate := state{sub: st.sub, vc: st.vc + 2, diseq: st.diseq, abs: st.abs}
 	return f.f(x, y).Apply(newstate)
 }
 
@@ -360,7 +409,7 @@ func (f fresh3Goal) Apply(st state) stream {
 	x := mkVar(variable(st.vc))
 	y := mkVar(variable(st.vc + 1))
 	z := mkVar(variable(st.vc + 2))
-	newstate := state{sub: st.sub, vc: st.vc + 3}
+	newstate := state{sub: st.sub, vc: st.vc + 3, diseq: st.diseq, abs: st.abs}
 	return f.f(x, y, z).Apply(newstate)
 }
 
@@ -379,6 +428,6 @@ func (f fresh7Goal) Apply(st state) stream {
 	b := mkVar(variable(st.vc + 4))
 	c := mkVar(variable(st.vc + 5))
 	d := mkVar(variable(st.vc + 6))
-	newstate := state{sub: st.sub, vc: st.vc + 7}
+	newstate := state{sub: st.sub, vc: st.vc + 7, diseq: st.diseq, abs: st.abs}
 	return f.f(x, y, z, a, b, c, d).Apply(newstate)
 }
