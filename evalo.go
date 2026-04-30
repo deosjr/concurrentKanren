@@ -30,10 +30,29 @@
 // ids outside that range for their own variables.
 package main
 
-// evalOUseDisjConc, when true, makes evalO combine its 6 cases via disj_conc
-// (parallel fork) instead of disj_plus (right-leaning interleaving). Used to
-// compare OR-parallelism vs sequential interleaving on the same workload.
-var evalOUseDisjConc bool
+// evalOMode selects how evalO combines its 6 cases.
+//
+//   - modeDisjPlus: sequential interleaving with bind+mplus delay
+//     propagation. The default and historically the only mode that
+//     works at depth.
+//
+//   - modeDisjConc: shared-pool fan-out. Hangs at K>=2 because eager
+//     fan-out triggers caseAppClosure recursion before productive
+//     low-K branches dispatch.
+//
+//   - modeDisjSmart: budget-bounded disj_par. Top-level evalO claims
+//     a parallelism slot; nested recursive evalO calls find the
+//     budget exhausted and fall back to disj_plus, naturally
+//     capping goroutine count.
+type evalOModeT int
+
+const (
+	modeDisjPlus  evalOModeT = iota // sequential interleaving (default)
+	modeDisjConc                    // shared-pool fan-out (HANGS at K>=2)
+	modeDisjSmart                   // budget-bounded disj_par with disj_plus fallback
+)
+
+var evalOMode evalOModeT
 
 const (
 	tagNum   = 0
@@ -302,8 +321,14 @@ func evalO(expr, env, val expression) goal {
 			})
 		})
 	})
-	if evalOUseDisjConc {
+	switch evalOMode {
+	case modeDisjConc:
 		return disj_conc(
+			caseNumLit, caseVarRef, caseQuote, caseLambda,
+			caseAppClosure, caseAppPrim,
+		)
+	case modeDisjSmart:
+		return disj_smart(
 			caseNumLit, caseVarRef, caseQuote, caseLambda,
 			caseAppClosure, caseAppPrim,
 		)

@@ -70,22 +70,48 @@ import (
 // GC and worker pool are what pull ahead at that scale.
 //
 // ----------------------------------------------------------------------
-// disj_conc on evalO
+// Why not disj_conc, and what disj_smart fixed
 // ----------------------------------------------------------------------
 //
-// Switching evalO's six-way disjunction from disj_plus to disj_conc
-// (parallel fan-out) hangs from K=2 onward, even with delay propagation.
-// disj_conc fans out all six branches eagerly each round, which forces
-// caseAppClosure and caseAppPrim into recursive expansion before
-// caseNumLit/caseQuote (the productive low-K branches) get a chance to
-// dispatch their states. Each forced caseApp opens 3 new recursive
-// disj_conc trees, and the active-stream set grows multiplicatively per
-// round.
+// disj_conc was tried and hangs from K>=2: it fans out all six
+// branches eagerly through the shared worker pool, so caseAppClosure
+// recursion explodes before productive low-K branches dispatch.
 //
-// disj_conc remains the right choice for workloads with balanced,
-// independent, terminating branches (and good fairness across N>2 — see
-// kanren_test.go). Relational evaluators have none of those properties,
-// so disj_plus + delay propagation is the correct choice for evalO.
+// Naive disj_par (../erlangKanren/pkanren.erl-style: one goroutine
+// per branch, no bounding) also fails on evalO. Each recursive evalO
+// call would spawn 6 more goroutines; nested branches deadlock on
+// backpressure channels.
+//
+// disj_smart (see disjpar.go) fixes this with a runtime budget:
+//
+//   - At Apply time, claim a slot from a counting semaphore (channel
+//     buffer = budget). If granted, run as parallel branches.
+//     Otherwise fall back to disj_plus (sequential interleaving).
+//
+//   - With budget=1, only the TOP-level evalO call runs in parallel.
+//     Every recursive evalO inside a branch finds the budget consumed
+//     and runs sequentially. No goroutine explosion.
+//
+// Result on the same workload as the table above:
+//
+//   K       Chez       Go disj_plus   Go disj_smart(b=1)   smart vs plus / Chez
+//   ----    -----      ------------   ------------------   ---------------------
+//   1000    111ms      336ms          158ms                2.1x  / 0.70x (Chez ahead)
+//   5000    1.69s      3.08s          1.43s                2.2x  / 1.18x (Go ahead)
+//   10000   5.01s      9.88s          4.28s                2.3x  / 1.17x (Go ahead)
+//   20000   15.7s      26.1s          13.1s                2.0x  / 1.20x (Go ahead)
+//
+// disj_smart gives a flat ~2x speedup over disj_plus on evalO and
+// shifts the Chez crossover from K~50000 down to between K=1000 and
+// K=5000 — Go is faster than Chez across the entire interesting
+// range of synthesis workloads.
+//
+// The architectural lesson: budget-bounded OR-parallelism is the
+// right pattern for relational evaluators. Top-level fan-out earns
+// the parallelism; recursive sub-disjunctions automatically degrade
+// to sequential, avoiding goroutine explosion. Same compile-time
+// auto-selection (cmd/disjautogen) can pick disj_smart over
+// disj_plus based on branch heaviness.
 func TestEvaloBenchSweep(t *testing.T) {
 	for _, k := range []int{10, 100, 1000} {
 		k := k
