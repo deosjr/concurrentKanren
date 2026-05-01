@@ -42,60 +42,87 @@ func disj_par(goals ...goal) goal {
 // the now-nil globalQueue.)
 var disjParWG sync.WaitGroup
 
-// disjSmartBudget is a buffered channel acting as a counting semaphore.
-// Each disj_smart invocation tries to claim one slot at Apply time. If
-// it succeeds, the disjunction runs in parallel (one goroutine per
-// branch). If the budget is exhausted, it falls back to disj_plus
-// (sequential interleaving). The slot is released when the parallel
-// branches all finish.
+// disj_smart's budget is a counting semaphore that tracks ACTIVE
+// GOROUTINES (branch-level threads). At Apply time, an N-way disj
+// tries to claim N slots all-or-nothing: if all fit, fan out to N
+// goroutines; otherwise fall back to disj_plus.
 //
-// This bounds total parallelism, which is the key insight for making
-// disj_smart work on RECURSIVE disjunctions like evalO: the top-level
-// call grabs slots; nested recursive evalO calls inside each parallel
-// branch find the budget consumed and run sequentially. No goroutine
-// explosion.
+// Counting goroutines (rather than disj_smart call sites) bounds
+// total goroutine count regardless of recursion depth. With budget=6
+// and a 6-way disj at the top, 6 goroutines spawn and the budget is
+// exhausted; any nested 6-way disj inside a branch finds 0 slots
+// free and falls back to sequential. With budget=12, the top fan-
+// out leaves 6 slots, so ONE recursive disj_smart can also fan out.
+// Higher budgets allow more recursive parallelism but at the cost
+// of cache thrash on shared substitution data.
 //
-// Budget defaults to GOMAXPROCS. Set explicitly via SetDisjSmartBudget.
-var disjSmartBudget chan struct{}
+// Rule of thumb: budget = top-level branch count (e.g., 6 for
+// evalo's six cases). Going higher rarely helps for recursive
+// workloads.
+//
+// Default: GOMAXPROCS. Set explicitly via SetDisjSmartBudget.
+var (
+	disjSmartMutex sync.Mutex
+	disjSmartSlots int
+	disjSmartMax   int
+)
 
 func init() {
-	disjSmartBudget = make(chan struct{}, runtime.GOMAXPROCS(0))
+	disjSmartMax = runtime.GOMAXPROCS(0)
 }
 
-// SetDisjSmartBudget reconfigures the parallelism budget. Pass 0 to
-// disable parallelism entirely (disj_smart always falls back to
-// disj_plus). Must be called before any disj_smart invocation.
+// SetDisjSmartBudget reconfigures the parallelism budget (max
+// concurrent branch goroutines). Pass 0 to disable parallelism
+// entirely (disj_smart always falls back to disj_plus).
 func SetDisjSmartBudget(n int) {
 	if n < 0 {
 		n = 0
 	}
-	disjSmartBudget = make(chan struct{}, n)
+	disjSmartMutex.Lock()
+	disjSmartMax = n
+	disjSmartMutex.Unlock()
+}
+
+// tryClaimSmartBudget attempts an all-or-nothing claim of n slots.
+// Returns true if successful (caller MUST releaseSmartBudget(n)
+// when done); false if the request exceeds remaining capacity.
+func tryClaimSmartBudget(n int) bool {
+	disjSmartMutex.Lock()
+	defer disjSmartMutex.Unlock()
+	if disjSmartSlots+n <= disjSmartMax {
+		disjSmartSlots += n
+		return true
+	}
+	return false
+}
+
+func releaseSmartBudget(n int) {
+	disjSmartMutex.Lock()
+	disjSmartSlots -= n
+	disjSmartMutex.Unlock()
 }
 
 type disjSmartGoal struct {
 	goals []goal
 }
 
-// disj_smart picks at runtime: if a parallelism slot is available,
-// fans out as disj_par; otherwise falls back to disj_plus. The choice
-// is made per Apply call, so deeply-nested recursions naturally cap
-// at the budget.
+// disj_smart picks at runtime: if N slots are available for an
+// N-way disjunction, fans out as disj_par; otherwise falls back to
+// disj_plus. The all-or-nothing claim makes total goroutine count
+// equal the budget regardless of recursion depth.
 func disj_smart(goals ...goal) goal {
 	return disjSmartGoal{goals: goals}
 }
 
 func (d disjSmartGoal) Apply(st state) stream {
-	select {
-	case disjSmartBudget <- struct{}{}:
-		// Got a slot — run parallel. Slot released when branches finish.
-		return d.applyParallel(st)
-	default:
-		// Budget exhausted — fall back to sequential interleaving.
-		return disj_plus(d.goals...).Apply(st)
+	n := len(d.goals)
+	if tryClaimSmartBudget(n) {
+		return d.applyParallel(st, n)
 	}
+	return disj_plus(d.goals...).Apply(st)
 }
 
-func (d disjSmartGoal) applyParallel(st state) stream {
+func (d disjSmartGoal) applyParallel(st state, n int) stream {
 	str := newStream()
 	answers := make(chan state)
 	done := make(chan struct{})
@@ -113,7 +140,7 @@ func (d disjSmartGoal) applyParallel(st state) stream {
 	go func() {
 		wg.Wait()
 		close(answers)
-		<-disjSmartBudget // release slot
+		releaseSmartBudget(n)
 	}()
 
 	bridgeChannelToStream(str, answers, done)
